@@ -28,26 +28,9 @@ The License Notices
 static const bool SHOW_FEEDBACK = false;
 static const bool CALIBRATE_CENTER = false;
 
-static const int INDEX_FLEX_MOTOR = 1;
-static const int MIDDLE_FLEX_MOTOR = 2;
-static const int RING_LITTLE_FLEX_MOTOR = 3;
-static const int THUMB_FLEX_MOTOR = 4;
-static const int THUMB_ROT_MOTOR = 5;
-
 BluetoothSerial SerialBT;
 SMS_STS st;
-FingersController fc;
-
-int multiarray1[2][2] = { { 0, 1 }, { 2, 3 } };
-int multiarray2[2][3] = { { 4, 5, 6 }, { 7, 8, 9 } };
-void testMultiDimArray(int** multiarray, int arrayrows, int arraycols) {
-
-  for (int i = 0; i < arrayrows; i++) {
-    for (int j = 0; j < arraycols; j++) {
-      SerialBT.println(multiarray[arrayrows][arraycols]);
-    }
-  }
-};
+FingersController fc(&SerialBT);
 
 void servoIdDiscovery() {
   SerialBT.println("Servo ID Discovery");
@@ -69,26 +52,19 @@ void servoIdDiscovery() {
 void setup() {
 
   Serial.begin(115200);
-  SerialBT.begin();
+  SerialBT.begin("YeahHand");
   SerialBT.setTimeout(1);
+  //delay(10000);
+  SerialBT.println("Yeah Hand Started!");
 
-  Serial1.begin(1000000, SERIAL_8N1, S_RXD, S_TXD);  // custom serial port
-  st.pSerial = &Serial1;
-  while (!Serial1) {
-    SerialBT.println("ST3215 serial Not ready");
-    delay(100);
-  }
-
-  //delay(10000);  // Initial pause
-  SerialBT.println("ST3215 serial Ready!");
   // servoIdDiscovery();
 
   //fc.moveAllFingersToMiddlePosition()
   if (CALIBRATE_CENTER) {
-    fc.calibrateCenterOfRange(FingersController::INDEX_FLEX_MOTOR);
-    fc.calibrateCenterOfRange(FingersController::MIDDLE_FLEX_MOTOR);
-    fc.calibrateCenterOfRange(FingersController::RING_LITTLE_FLEX_MOTOR);
-    fc.calibrateCenterOfRange(FingersController::THUMB_FLEX_MOTOR);
+    // fc.calibrateCenterOfRange(FingersController::INDEX_FLEX_MOTOR);
+    // fc.calibrateCenterOfRange(FingersController::MIDDLE_FLEX_MOTOR);
+    // fc.calibrateCenterOfRange(FingersController::RING_LITTLE_FLEX_MOTOR);
+    // fc.calibrateCenterOfRange(FingersController::THUMB_FLEX_MOTOR);
     SerialBT.println("All servos center position calibrated!");
     while (1)
       ;
@@ -98,14 +74,13 @@ void setup() {
   //fc.changeID(5, RING_LITTLE_FLEX_MOTOR);
 
   // Hand Calibration
-  fc.performTendonCalibration();
+  fc.calibrateHand();
 }
 
 FingersController::GraspType g_grasp_type = FingersController::GraspType::MONKEY;
 FingersController::GraspType g_new_grasp_type = g_grasp_type;
 int g_closurePercent = 0;
 int g_newClosurePercent = 0;
-int g_load_limit[4] = { 308, 308, 308, 264 };
 bool g_preparation = true;
 bool g_closure = false;
 bool g_motor_enabled[5] = { true, true, true, true, true };
@@ -129,62 +104,27 @@ int sign(int val) {
 int gMaxOverLoadCount = 40;
 int gOverLoadCounters[5];  // 0: index, ..
 
-void limitLoad() {
+// void limitTemp() {
 
-  if (DEBUG) { SerialBT.println("LIMITING LOAD.."); }
-
-  for (int idx = FingersController::VectorIdx::Index; idx <= FingersController::VectorIdx::ThumbRot; idx++) {
-    auto id = fc.getMotorIdByVectorIndex((FingersController::VectorIdx)idx);
-    if (fc.isMoving(id)) {
-      gOverLoadCounters[idx] = 0;  //reset
-      if (DEBUG) { SerialBT.printf("Id %d reset count\n", id); }
-      continue;
-    }
-    delay(200);
-    auto load = fc.getLoad(id);
-    if (abs(load) > 220) {
-      gOverLoadCounters[idx]++;
-      if (DEBUG) { SerialBT.printf("Id %d overLoadCount: %d\n", id, gOverLoadCounters[idx]); }
-    }
-    while (gOverLoadCounters[idx] > gMaxOverLoadCount && abs(load) > 250) {
-      SerialBT.printf("LOAD LIMIT! Id %d Load: %d > 250 for %d times \n", id, load, gMaxOverLoadCount);
-      auto s = sign(load);
-      auto pos = fc.getPos(id);
-      if (DEBUG) {
-        SerialBT.printf("Id %d s: %d\n", id, s);
-        SerialBT.printf("Id %d pos: %d\n", id, pos);
-      }
-      fc.moveFinger(pos + s * 10, id, 2000, 50);
-      if (DEBUG) {
-        SerialBT.printf("Id %d Moving to Pos %d \n", id, pos + s * 10);
-      }
-      delay(200);
-      load = fc.getLoad(id);
-    }
-  }
-}
-
-void limitTemp() {
-
-  for (int i = 0; i <= 4; i++) {
-    int id = fc.getMotorIdByVectorIndex(static_cast<FingersController::VectorIdx>(i));
-    auto temp = fc.getTemper(id);
-    if (temp > 65) {
-      fc.enableTorque(id, false);
-      g_motor_enabled[i] = false;
-      SerialBT.printf("Motor %d OVERHEAT! => Motor disabled! \n", id);
-    } else if (!g_motor_enabled[i] && temp < 60) {
-      fc.enableTorque(id, true);
-      g_motor_enabled[i] = true;
-      SerialBT.printf("Motor %d Cooled Down => Motor enabled! \n", id);
-    }
-  }
-}
+//   for (int i = 0; i <= 4; i++) {
+//     int id = fc.getMotorIdByVectorIndex(static_cast<FingersController::VectorIdx>(i));
+//     auto temp = fc.readTemper(id);
+//     if (temp > 65) {
+//       fc.enableTorque(id, false);
+//       g_motor_enabled[i] = false;
+//       SerialBT.printf("Motor %d OVERHEAT! => Motor disabled! \n", id);
+//     } else if (!g_motor_enabled[i] && temp < 60) {
+//       fc.enableTorque(id, true);
+//       g_motor_enabled[i] = true;
+//       SerialBT.printf("Motor %d Cooled Down => Motor enabled! \n", id);
+//     }
+//   }
+// }
 
 void processStringCmd(const String& cmd) {
-  FingersController::GraspType value = FingersController::getGraspTypeByString(cmd);
-  if (value < FingersController::GraspType::_MAX) {
-    g_new_grasp_type = value;
+  FingersController::GraspType graspType = FingersController::getGraspTypeByString(cmd);
+  if (graspType < FingersController::GraspType::_MAX) {
+    g_new_grasp_type = graspType;
     if (BLUETOOTH) SerialBT.println("Grasp by Serial Cmd");
   } else {  // Not a Grasp command..
     if (cmd == "INSTALL\r\n") {
@@ -193,38 +133,45 @@ void processStringCmd(const String& cmd) {
       gFsmState = FSM::Testing;
     } else if (cmd == "CONTROL\r\n") {
       gFsmState = FSM::Control;
-    } else if (cmd.substring(0, 3) == "LIM") {  // Comando esempio: LIM6645
-      g_load_limit[0] = cmd.substring(3, 4).toInt() * 111;
-      g_load_limit[1] = cmd.substring(4, 5).toInt() * 111;
-      g_load_limit[2] = cmd.substring(5, 6).toInt() * 111;
-      g_load_limit[3] = cmd.substring(6, 7).toInt() * 111;
+    } else if (cmd.substring(0, 3) == "LIM") {  // Comando esempio: LIM 1 125
+      auto id = cmd.substring(4, 5).toInt();
+      auto val = cmd.substring(6, 9).toInt();
+      fc.setMaxTorque(id, val);
     } else if (cmd.substring(0, 5) == "INFO ") {
-      int id = cmd.substring(5, cmd.lastIndexOf('\r')).toInt();
-      fc.printFeedback(id);
+      FingersController::VectorIdx IDX = (FingersController::VectorIdx) cmd.substring(5, cmd.lastIndexOf('\r')).toInt();
+      auto ID = fc.getMotorIdByVectorIndex(IDX);
+      fc.printFeedback(ID);
+      SerialBT.printf("Factor: %d\n", fc.getFactorFromPos(IDX,fc.readPos(ID)));
+    } else if (cmd.substring(0, 3) == "POS") {
+      u8 IDN = 4;
+      u8 IDs[IDN] = { 1, 2, 3, 4 };
+      s16 pos[IDN];
+      fc.readPositions(IDN, IDs, pos);
+      SerialBT.printf("Positions: %d %d %d %d\n", pos[0], pos[1], pos[2], pos[3]);
     } else if (cmd.substring(0, 5) == "MOVE ") {
-      int id = cmd.substring(5, 6).toInt();
+      int ID = cmd.substring(5, 6).toInt();
       int pos = cmd.substring(6, cmd.lastIndexOf('\r')).toInt();
-      fc.moveFinger(pos, id, 400, 2000);
+      fc.moveUntilLoadLimitHit(ID, pos, 2000, 200);
     } else if (cmd.substring(0, 3) == "RT ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveFinger(factor, FingersController::VectorIdx::ThumbRot);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::ThumbRot, factor, 2000, 200);
     } else if (cmd.substring(0, 3) == "FI ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveFinger(factor, FingersController::VectorIdx::Index);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Index, factor, 2000, 200);
     } else if (cmd.substring(0, 3) == "FM ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveFinger(factor, FingersController::VectorIdx::Middle);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Middle, factor, 2000, 200);
     } else if (cmd.substring(0, 3) == "FR ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveFinger(factor, FingersController::VectorIdx::Ring);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Ring, factor, 2000, 200);
     } else if (cmd.substring(0, 3) == "FT ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveFinger(factor, FingersController::VectorIdx::Thumb);
-    } else if (cmd.substring(0, 11) == "CALICENTER ") {
-      int id = cmd.substring(11, 12).toInt();
-      fc.calibrateCenterOfRange(id);
-    } else if (cmd.substring(0, 10) == "CALITENDON") {
-      fc.performTendonCalibration();
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Thumb, factor, 2000, 200);
+    } else if (cmd.substring(0, 10) == "SETCENTER ") {
+      int id = cmd.substring(10, 11).toInt();
+      fc.setCenterOfRange(id);
+    } else if (cmd.substring(0, 9) == "CALIBRATE") {
+      fc.calibrateHand();
     } else {
       g_newClosurePercent = cmd.toInt();
       if (BLUETOOTH) SerialBT.printf("ClosurePercent by Serial Cmd: %d\n", g_newClosurePercent);
@@ -240,40 +187,40 @@ void prepareGrasp() {
   g_preparation = false;
 }
 
-// TESTING FSM
-enum class TestFSM {
-  OPEN,
-  CLOSE
-};
+// // TESTING FSM
+// enum class TestFSM {
+//   OPEN,
+//   CLOSE
+// };
 
-TestFSM gTestFsmState = TestFSM::OPEN;
-int gFsmTimer = millis();
-int gTestCounter = -1;
-void test() {
-  const int limits[4] = { 330, 330, 330, 300 };
-  switch (gTestFsmState) {
+// TestFSM gTestFsmState = TestFSM::OPEN;
+// int gFsmTimer = millis();
+// int gTestCounter = -1;
+// void test() {
+//   switch (gTestFsmState) {
 
-    case TestFSM::OPEN:
-      fc.action(FingersController::GraspType::POWER, 0, limits);
-      delay(2000);
-      gTestFsmState = TestFSM::CLOSE;
-      break;
-    case TestFSM::CLOSE:
-      fc.action(FingersController::GraspType::POWER, 100, limits);
-      delay(2000);
-      gTestFsmState = TestFSM::OPEN;
-      gTestCounter++;
-      break;
-  }
-  int tI = fc.getTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Index));
-  int tM = fc.getTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Middle));
-  int tR = fc.getTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Ring));
-  int tT = fc.getTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Thumb));
-  int tTR = fc.getTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::ThumbRot));
-  SerialBT.printf("Test cycles: %d \t Temper: I:%d \t M:%d \t R:%d \t T:%d \t TR:%d \t \n", gTestCounter, tI, tM, tR, tT, tTR);
-}
+//     case TestFSM::OPEN:
+//       fc.action(FingersController::GraspType::POWER, 0);
+//       delay(2000);
+//       gTestFsmState = TestFSM::CLOSE;
+//       break;
+//     case TestFSM::CLOSE:
+//       fc.action(FingersController::GraspType::POWER, 100);
+//       delay(2000);
+//       gTestFsmState = TestFSM::OPEN;
+//       gTestCounter++;
+//       break;
+//   }
+//   int tI = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Index));
+//   int tM = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Middle));
+//   int tR = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Ring));
+//   int tT = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Thumb));
+//   int tTR = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::ThumbRot));
+//   SerialBT.printf("Test cycles: %d \t Temper: I:%d \t M:%d \t R:%d \t T:%d \t TR:%d \t \n", gTestCounter, tI, tM, tR, tT, tTR);
+// }
 
 void loop() {
+  auto t1 = millis();
 
   if (BLUETOOTH && SerialBT.available()) {
     auto t1 = millis();
@@ -309,18 +256,9 @@ void loop() {
     }
 
     if (g_closure) {
-      fc.action(g_grasp_type, g_closurePercent, g_load_limit);
+      fc.action(g_grasp_type, g_closurePercent);
       g_closure = false;
     }
-
-    if (SHOW_FEEDBACK) {
-      fc.printFeedback(INDEX_FLEX_MOTOR);
-      fc.printFeedback(MIDDLE_FLEX_MOTOR);
-      fc.printFeedback(RING_LITTLE_FLEX_MOTOR);
-      fc.printFeedback(THUMB_FLEX_MOTOR);
-      fc.printFeedback(THUMB_ROT_MOTOR);
-    }
-
 
   } else if (gFsmState == FSM::TendonInstall) {
 
@@ -329,13 +267,10 @@ void loop() {
     SerialBT.println("Please install tendons.");
 
   } else if (gFsmState == FSM::Testing) {
-    test();
+    // test();
   } else if (gFsmState == FSM::DoNothing) {
     delay(10);
-  }
-
-  delay(1);
-
-  limitLoad();
-  limitTemp();
+  }  
+    
+  // limitTemp();
 }
