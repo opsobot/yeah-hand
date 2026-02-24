@@ -13,7 +13,7 @@ Licenses:
 - GNU GPLV3 (Software)
 - CC-BY-SA (Documentation)
 
-Contributing
+ContributinG
 ------------
 - Original hardware, software and documentation by Vittorio Lumare
 - Code contributions via Pull Requests to OPSOBOT/yeah-hand
