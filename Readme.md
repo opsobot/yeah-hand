@@ -6,14 +6,14 @@ Yeah Hand (Rebelia V2) - An Open Source Robotic Hand for Humans and Robots
 
 **Original design by Vittorio Lumare, OPSOBOT** [Hackaday Project Page](https://hackaday.io/project/204373)
 
-**Successor to OSHWA-certified Rebelia V1: https://github.com/OPSOBOT/rebelia**
+**Successor to OSHWA-certified [Rebelia V1](https://github.com/OPSOBOT/rebelia/tree/V1)**
 
 Licenses: 
 - CERN-OHL-S-2.0 (Hardware)
 - GNU GPLV3 (Software)
 - CC-BY-SA (Documentation)
 
-ContributinG
+Contributing
 ------------
 - Original hardware, software and documentation by Vittorio Lumare
 - Code contributions via Pull Requests to OPSOBOT/yeah-hand
