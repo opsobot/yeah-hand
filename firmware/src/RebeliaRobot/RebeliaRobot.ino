@@ -20,11 +20,6 @@ The License Notices
 #include <BTScan.h>
 #include <BluetoothSerial.h>
 #include "fingers_controller.h"
-<<<<<<< HEAD
-=======
-#include "calibration_storage.h"
-
->>>>>>> 6c704d6 (calibration storage)
 
 #define S_RXD 18
 #define S_TXD 19
