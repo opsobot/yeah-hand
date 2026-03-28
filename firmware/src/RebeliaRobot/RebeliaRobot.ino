@@ -20,6 +20,11 @@ The License Notices
 #include <BTScan.h>
 #include <BluetoothSerial.h>
 #include "fingers_controller.h"
+<<<<<<< HEAD
+=======
+#include "calibration_storage.h"
+
+>>>>>>> 6c704d6 (calibration storage)
 
 #define S_RXD 18
 #define S_TXD 19
@@ -54,13 +59,17 @@ void setup() {
   Serial.begin(115200);
   SerialBT.begin("YeahHand");
   SerialBT.setTimeout(1);
+<<<<<<< HEAD
   //delay(10000);
+=======
+>>>>>>> 6c704d6 (calibration storage)
   SerialBT.println("Yeah Hand Started!");
 
   // servoIdDiscovery();
 
   //fc.moveAllFingersToMiddlePosition()
   if (CALIBRATE_CENTER) {
+<<<<<<< HEAD
     // fc.calibrateCenterOfRange(FingersController::INDEX_FLEX_MOTOR);
     // fc.calibrateCenterOfRange(FingersController::MIDDLE_FLEX_MOTOR);
     // fc.calibrateCenterOfRange(FingersController::RING_LITTLE_FLEX_MOTOR);
@@ -77,6 +86,71 @@ void setup() {
   fc.calibrateHand();
 }
 
+=======
+    SerialBT.println("All servos center position calibrated!");
+    while (1);
+  }
+
+  // ========== CALIBRATION STORAGE INITIALIZATION ==========
+  CalibrationState calibState = g_calibStorage.initialize();
+
+  switch (calibState) {
+    case CalibrationState::VALID:
+    case CalibrationState::BACKUP_USED:
+      // Calibration loaded successfully
+      SerialBT.printf("Calibration loaded: %s\n", g_calibStorage.getStateString());
+      fc.applyCalibrationFromStorage(&g_calibStorage);
+      gFsmState = FSM::Control;
+      break;
+
+    case CalibrationState::MISSING:
+      // First boot or factory reset - run calibration
+      SerialBT.println("No calibration found - running initial calibration...");
+      if (fc.calibrateHand()) {
+        fc.saveCalibrationToStorage(&g_calibStorage);
+        if (g_calibStorage.save()) {
+          SerialBT.println("Calibration saved successfully!");
+          gFsmState = FSM::Control;
+        } else {
+          SerialBT.println("WARNING: Calibration save failed!");
+          gFsmState = FSM::Control;  // Still allow operation
+        }
+      } else {
+        SerialBT.println("ERROR: Calibration failed!");
+        gFsmState = FSM::CalibrationRequired;
+      }
+      break;
+
+    case CalibrationState::CORRUPT:
+    case CalibrationState::INVALID_VALUES:
+    case CalibrationState::INCOMPLETE:
+      // Calibration data is bad - require recalibration
+      SerialBT.println("ERROR: Calibration data invalid!");
+      SerialBT.println("Send CALIBRATE command to recalibrate.");
+      gFsmState = FSM::CalibrationRequired;
+      break;
+
+    case CalibrationState::VERSION_MISMATCH:
+      // Schema changed - could try migration or require recalibration
+      SerialBT.println("Calibration version mismatch - recalibrating...");
+      if (fc.calibrateHand()) {
+        fc.saveCalibrationToStorage(&g_calibStorage);
+        g_calibStorage.save();
+        gFsmState = FSM::Control;
+      } else {
+        gFsmState = FSM::CalibrationRequired;
+      }
+      break;
+
+    default:
+      SerialBT.println("ERROR: Unknown calibration state!");
+      gFsmState = FSM::CalibrationRequired;
+      break;
+  }
+}
+
+
+>>>>>>> 6c704d6 (calibration storage)
 FingersController::GraspType g_grasp_type = FingersController::GraspType::MONKEY;
 FingersController::GraspType g_new_grasp_type = g_grasp_type;
 int g_closurePercent = 0;
@@ -88,7 +162,12 @@ enum class FSM {
   Control,
   TendonInstall,
   Testing,
+<<<<<<< HEAD
   DoNothing
+=======
+  DoNothing,
+  CalibrationRequired  // NEW: Blocks operation until calibrated
+>>>>>>> 6c704d6 (calibration storage)
 };
 FSM gFsmState = FSM::Control;
 
@@ -171,8 +250,64 @@ void processStringCmd(const String& cmd) {
       int id = cmd.substring(10, 11).toInt();
       fc.setCenterOfRange(id);
     } else if (cmd.substring(0, 9) == "CALIBRATE") {
+<<<<<<< HEAD
       fc.calibrateHand();
     } else {
+=======
+      SerialBT.println("Starting calibration...");
+      if (fc.calibrateHand()) {
+        fc.saveCalibrationToStorage(&g_calibStorage);
+        if (g_calibStorage.save()) {
+          SerialBT.println("Calibration saved successfully!");
+          gFsmState = FSM::Control;
+        } else {
+          SerialBT.println("WARNING: Failed to save calibration!");
+        }
+      } else {
+        SerialBT.println("ERROR: Calibration failed!");
+      }
+    }
+    // ========== NEW CALIBRATION STORAGE COMMANDS ==========
+    else if (cmd == "CALIB_DUMP\r\n") {
+      g_calibStorage.dumpToSerial(&SerialBT);
+    }
+    else if (cmd == "CALIB_JSON\r\n") {
+      g_calibStorage.dumpAsJSON(&SerialBT);
+    }
+    else if (cmd == "CALIB_EXPORT\r\n") {
+      g_calibStorage.exportAsCommands(&SerialBT);
+    }
+    else if (cmd.startsWith("CALIB_SET ")) {
+      String args = cmd.substring(10);
+      args.trim();
+      g_calibStorage.parseSetCommand(args, &SerialBT);
+    }
+    else if (cmd == "CALIB_SAVE\r\n") {
+      if (g_calibStorage.save()) {
+        SerialBT.println("Calibration saved to flash");
+      } else {
+        SerialBT.println("ERROR: Save failed");
+      }
+    }
+    else if (cmd == "CALIB_RESET\r\n") {
+      g_calibStorage.factoryReset();
+      SerialBT.println("Calibration reset - restart to recalibrate");
+    }
+    else if (cmd == "CALIB_RELOAD\r\n") {
+      if (g_calibStorage.load()) {
+        fc.applyCalibrationFromStorage(&g_calibStorage);
+        SerialBT.println("Calibration reloaded from flash");
+      } else {
+        SerialBT.println("ERROR: Reload failed");
+      }
+    }
+    else if (cmd == "CALIB_STATUS\r\n") {
+      SerialBT.printf("Calibration State: %s\n", g_calibStorage.getStateString());
+      SerialBT.printf("Valid for operation: %s\n",
+                      g_calibStorage.isValid() ? "YES" : "NO");
+    }
+    else {
+>>>>>>> 6c704d6 (calibration storage)
       g_newClosurePercent = cmd.toInt();
       if (BLUETOOTH) SerialBT.printf("ClosurePercent by Serial Cmd: %d\n", g_newClosurePercent);
     }
@@ -270,7 +405,25 @@ void loop() {
     // test();
   } else if (gFsmState == FSM::DoNothing) {
     delay(10);
+<<<<<<< HEAD
   }  
     
+=======
+  } else if (gFsmState == FSM::CalibrationRequired) {
+    // Calibration required - block operation
+    static unsigned long lastWarning = 0;
+    if (millis() - lastWarning > 5000) {
+      SerialBT.println("=== CALIBRATION REQUIRED ===");
+      SerialBT.println("Hand motion is BLOCKED until calibrated.");
+      SerialBT.println("Send 'CALIBRATE' command to calibrate.");
+      SerialBT.println("============================");
+      lastWarning = millis();
+    }
+
+    // Only process commands (already handled above)
+    // This state blocks all motion
+    delay(100);
+  }  
+>>>>>>> 6c704d6 (calibration storage)
   // limitTemp();
 }
