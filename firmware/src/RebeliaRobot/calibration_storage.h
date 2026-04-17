@@ -175,6 +175,7 @@ public:
      */
     void markStageComplete(uint8_t stage) {
         m_data.completion_flags |= stage;
+        m_dirty = true;
     }
 
     /**
@@ -182,6 +183,7 @@ public:
      */
     void resetCompletionFlags() {
         m_data.completion_flags = 0;
+        m_dirty = true;
     }
 
     /**
@@ -261,5 +263,6 @@ private:
     bool m_dirty;                 // True if data changed since last save
 };
 
+extern CalibrationStorage g_calibStorage;
 
 #endif // CALIBRATION_STORAGE_H

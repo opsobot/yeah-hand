@@ -20,6 +20,9 @@ The License Notices
 #include <BTScan.h>
 #include <BluetoothSerial.h>
 #include "fingers_controller.h"
+#include "calibration_storage.h"
+#include "gesture_storage.h"
+
 
 #define S_RXD 18
 #define S_TXD 19
@@ -31,6 +34,25 @@ static const bool CALIBRATE_CENTER = false;
 BluetoothSerial SerialBT;
 SMS_STS st;
 FingersController fc(&SerialBT);
+
+enum class FSM {
+  Control,
+  TendonInstall,
+  Testing,
+  DoNothing,
+  CalibrationRequired
+};
+
+FingersController::GraspType g_grasp_type = FingersController::GraspType::MONKEY;
+FingersController::GraspType g_new_grasp_type = g_grasp_type;
+int g_closurePercent = 0;
+int g_newClosurePercent = 0;
+bool g_preparation = true;
+bool g_closure = false;
+bool g_motor_enabled[5] = { true, true, true, true, true };
+FSM gFsmState = FSM::Control;
+
+void logRobotFlow(const String& message);
 
 void servoIdDiscovery() {
   SerialBT.println("Servo ID Discovery");
@@ -54,34 +76,12 @@ void setup() {
   Serial.begin(115200);
   SerialBT.begin("YeahHand");
   SerialBT.setTimeout(1);
-<<<<<<< HEAD
-  //delay(10000);
-=======
->>>>>>> 6c704d6 (calibration storage)
   SerialBT.println("Yeah Hand Started!");
 
   // servoIdDiscovery();
 
   //fc.moveAllFingersToMiddlePosition()
   if (CALIBRATE_CENTER) {
-<<<<<<< HEAD
-    // fc.calibrateCenterOfRange(FingersController::INDEX_FLEX_MOTOR);
-    // fc.calibrateCenterOfRange(FingersController::MIDDLE_FLEX_MOTOR);
-    // fc.calibrateCenterOfRange(FingersController::RING_LITTLE_FLEX_MOTOR);
-    // fc.calibrateCenterOfRange(FingersController::THUMB_FLEX_MOTOR);
-    SerialBT.println("All servos center position calibrated!");
-    while (1)
-      ;
-  }
-
-  //Changing Motor ID
-  //fc.changeID(5, RING_LITTLE_FLEX_MOTOR);
-
-  // Hand Calibration
-  fc.calibrateHand();
-}
-
-=======
     SerialBT.println("All servos center position calibrated!");
     while (1);
   }
@@ -142,36 +142,263 @@ void setup() {
       gFsmState = FSM::CalibrationRequired;
       break;
   }
+
+  g_gestureStorage.initialize(&SerialBT);
+  logRobotFlow("[Robot] Setup complete. FSM=" + String(static_cast<int>(gFsmState)));
 }
-
-
->>>>>>> 6c704d6 (calibration storage)
-FingersController::GraspType g_grasp_type = FingersController::GraspType::MONKEY;
-FingersController::GraspType g_new_grasp_type = g_grasp_type;
-int g_closurePercent = 0;
-int g_newClosurePercent = 0;
-bool g_preparation = true;
-bool g_closure = false;
-bool g_motor_enabled[5] = { true, true, true, true, true };
-enum class FSM {
-  Control,
-  TendonInstall,
-  Testing,
-<<<<<<< HEAD
-  DoNothing
-=======
-  DoNothing,
-  CalibrationRequired  // NEW: Blocks operation until calibrated
->>>>>>> 6c704d6 (calibration storage)
-};
-FSM gFsmState = FSM::Control;
 
 void processStringCmd(const String& cmd);
 void prepareGrasp();
 void limitLoad();
 int sign(int val);
+bool handleGestureCommand(const String& trimmed_cmd);
+bool executeGestureRecord(const GestureRecord& record);
+bool playStoredGesture(uint8_t slot);
+bool playEditorGesture();
+void printGestureHelp();
+void logRobotFlow(const String& message);
+bool tryParseIntValue(const String& text, int* out_value);
+bool tryParseSlotArgument(const String& text, uint8_t* out_slot);
+
+void logRobotFlow(const String& message) {
+  Serial.println(message);
+  if (BLUETOOTH) {
+    SerialBT.println(message);
+  }
+}
+
+bool tryParseIntValue(const String& text, int* out_value) {
+  String trimmed = text;
+  trimmed.trim();
+  if (trimmed.isEmpty()) {
+    return false;
+  }
+
+  int start = 0;
+  if (trimmed.charAt(0) == '-' || trimmed.charAt(0) == '+') {
+    start = 1;
+  }
+  if (start >= trimmed.length()) {
+    return false;
+  }
+
+  for (int i = start; i < trimmed.length(); ++i) {
+    const char ch = trimmed.charAt(i);
+    if (ch < '0' || ch > '9') {
+      return false;
+    }
+  }
+
+  *out_value = trimmed.toInt();
+  return true;
+}
+
+bool tryParseSlotArgument(const String& text, uint8_t* out_slot) {
+  int parsed = 0;
+  if (!tryParseIntValue(text, &parsed)) {
+    return false;
+  }
+  if (parsed < 0 || parsed >= MAX_CUSTOM_GESTURES) {
+    return false;
+  }
+  *out_slot = static_cast<uint8_t>(parsed);
+  return true;
+}
+
+void printGestureHelp() {
+  SerialBT.println("=== GESTURE COMMANDS ===");
+  SerialBT.println("GEST_BEGIN <name>");
+  SerialBT.println("GEST_STEP idx,mid,ring,thumb,thumbRot,moveMs,holdMs,speed,accel");
+  SerialBT.println("GEST_EDITOR");
+  SerialBT.println("GEST_SAVE <slot>");
+  SerialBT.println("GEST_LOAD <slot>");
+  SerialBT.println("GEST_PLAY <slot>");
+  SerialBT.println("GEST_PLAY_RAM");
+  SerialBT.println("GEST_DUMP <slot>");
+  SerialBT.println("GEST_LIST");
+  SerialBT.println("GEST_DELETE <slot>");
+  SerialBT.println("GEST_ABORT");
+  SerialBT.println("========================");
+}
+
+bool executeGestureRecord(const GestureRecord& record) {
+  if (!g_calibStorage.isValid()) {
+    logRobotFlow("[Robot] Custom gesture playback blocked: calibration is invalid");
+    return false;
+  }
+
+  if (gFsmState != FSM::Control) {
+    logRobotFlow("[Robot] Custom gesture playback blocked: controller is not in CONTROL state");
+    return false;
+  }
+
+  logRobotFlow("[Robot] Playing gesture '" + String(record.name) + "' with " + String(record.step_count) + " steps");
+
+  g_preparation = false;
+  g_closure = false;
+
+  for (uint8_t step_index = 0; step_index < record.step_count; ++step_index) {
+    const GestureStep& step = record.steps[step_index];
+    logRobotFlow("[Robot] Gesture step " + String(step_index) + " started");
+    const bool step_ok = fc.executeTimedStep(step.factor, step.speed, step.accel,
+                                             step.move_time_ms, step.hold_time_ms);
+    if (!step_ok) {
+      logRobotFlow("[Robot] Gesture playback aborted at step " + String(step_index));
+      return false;
+    }
+  }
+
+  logRobotFlow("[Robot] Gesture playback completed");
+  return true;
+}
+
+bool playStoredGesture(uint8_t slot) {
+  GestureRecord record;
+  if (!g_gestureStorage.loadGesture(slot, &record)) {
+    logRobotFlow("[Robot] No saved gesture found in slot " + String(slot));
+    return false;
+  }
+  return executeGestureRecord(record);
+}
+
+bool playEditorGesture() {
+  const GestureEditor& editor = g_gestureStorage.getEditor();
+  if (!editor.has_data || editor.step_count == 0) {
+    logRobotFlow("[Robot] Gesture editor is empty");
+    return false;
+  }
+
+  GestureRecord record;
+  memset(&record, 0, sizeof(record));
+  strncpy(record.name, editor.name, GESTURE_NAME_CAPACITY - 1);
+  record.name[GESTURE_NAME_CAPACITY - 1] = '\0';
+  record.step_count = editor.step_count;
+  memcpy(record.steps, editor.steps, sizeof(editor.steps));
+  return executeGestureRecord(record);
+}
+
+bool handleGestureCommand(const String& trimmed_cmd) {
+  String upper_cmd = trimmed_cmd;
+  upper_cmd.toUpperCase();
+
+  if (upper_cmd == "GEST_HELP") {
+    printGestureHelp();
+    return true;
+  }
+
+  if (upper_cmd == "GEST_LIST") {
+    g_gestureStorage.listGestures(&SerialBT);
+    return true;
+  }
+
+  if (upper_cmd == "GEST_EDITOR") {
+    g_gestureStorage.dumpEditor(&SerialBT);
+    return true;
+  }
+
+  if (upper_cmd == "GEST_PLAY_RAM") {
+    playEditorGesture();
+    return true;
+  }
+
+  if (upper_cmd == "GEST_ABORT") {
+    g_gestureStorage.clearEditor();
+    logRobotFlow("[Robot] Gesture editor cleared");
+    return true;
+  }
+
+  if (upper_cmd.startsWith("GEST_BEGIN ")) {
+    String error;
+    if (!g_gestureStorage.beginEditor(trimmed_cmd.substring(11), &error)) {
+      logRobotFlow("[Robot] Gesture editor start failed: " + error);
+    }
+    return true;
+  }
+
+  if (upper_cmd.startsWith("GEST_STEP ")) {
+    GestureStep step;
+    String error;
+    if (!GestureStorage::parseGestureStepCsv(trimmed_cmd.substring(10), &step, &error)) {
+      logRobotFlow("[Robot] Gesture step rejected: " + error);
+      return true;
+    }
+    if (!g_gestureStorage.appendEditorStep(step, &error)) {
+      logRobotFlow("[Robot] Gesture step append failed: " + error);
+      return true;
+    }
+    return true;
+  }
+
+  if (upper_cmd.startsWith("GEST_SAVE ")) {
+    uint8_t slot = 0;
+    if (!tryParseSlotArgument(trimmed_cmd.substring(10), &slot)) {
+      logRobotFlow("[Robot] GEST_SAVE requires a slot between 0 and " + String(MAX_CUSTOM_GESTURES - 1));
+      return true;
+    }
+    String error;
+    if (!g_gestureStorage.saveEditorToSlot(slot, &error)) {
+      logRobotFlow("[Robot] Gesture save failed: " + error);
+      return true;
+    }
+    logRobotFlow("[Robot] Gesture saved to slot " + String(slot));
+    return true;
+  }
+
+  if (upper_cmd.startsWith("GEST_LOAD ")) {
+    uint8_t slot = 0;
+    if (!tryParseSlotArgument(trimmed_cmd.substring(10), &slot)) {
+      logRobotFlow("[Robot] GEST_LOAD requires a slot between 0 and " + String(MAX_CUSTOM_GESTURES - 1));
+      return true;
+    }
+    String error;
+    if (!g_gestureStorage.loadGestureIntoEditor(slot, &error)) {
+      logRobotFlow("[Robot] Gesture load failed: " + error);
+      return true;
+    }
+    g_gestureStorage.dumpEditor(&SerialBT);
+    return true;
+  }
+
+  if (upper_cmd.startsWith("GEST_PLAY ")) {
+    uint8_t slot = 0;
+    if (!tryParseSlotArgument(trimmed_cmd.substring(10), &slot)) {
+      logRobotFlow("[Robot] GEST_PLAY requires a slot between 0 and " + String(MAX_CUSTOM_GESTURES - 1));
+      return true;
+    }
+    playStoredGesture(slot);
+    return true;
+  }
+
+  if (upper_cmd.startsWith("GEST_DUMP ")) {
+    uint8_t slot = 0;
+    if (!tryParseSlotArgument(trimmed_cmd.substring(10), &slot)) {
+      logRobotFlow("[Robot] GEST_DUMP requires a slot between 0 and " + String(MAX_CUSTOM_GESTURES - 1));
+      return true;
+    }
+    g_gestureStorage.dumpGesture(slot, &SerialBT);
+    return true;
+  }
+
+  if (upper_cmd.startsWith("GEST_DELETE ")) {
+    uint8_t slot = 0;
+    if (!tryParseSlotArgument(trimmed_cmd.substring(12), &slot)) {
+      logRobotFlow("[Robot] GEST_DELETE requires a slot between 0 and " + String(MAX_CUSTOM_GESTURES - 1));
+      return true;
+    }
+    String error;
+    if (!g_gestureStorage.deleteGesture(slot, &error)) {
+      logRobotFlow("[Robot] Gesture delete failed: " + error);
+    }
+    return true;
+  }
+
+  return false;
+}
 
 int sign(int val) {
+  if (val == 0) {
+    return 0;
+  }
   return val / abs(val);
 }
 
@@ -196,117 +423,269 @@ int gOverLoadCounters[5];  // 0: index, ..
 // }
 
 void processStringCmd(const String& cmd) {
-  FingersController::GraspType graspType = FingersController::getGraspTypeByString(cmd);
+  String trimmed_cmd = cmd;
+  trimmed_cmd.trim();
+  if (trimmed_cmd.isEmpty()) {
+    return;
+  }
+
+  logRobotFlow("[Robot] RX command: " + trimmed_cmd);
+
+  if (handleGestureCommand(trimmed_cmd)) {
+    return;
+  }
+
+  String upper_cmd = trimmed_cmd;
+  upper_cmd.toUpperCase();
+
+  FingersController::GraspType graspType = FingersController::getGraspTypeByString(trimmed_cmd);
   if (graspType < FingersController::GraspType::_MAX) {
     g_new_grasp_type = graspType;
-    if (BLUETOOTH) SerialBT.println("Grasp by Serial Cmd");
-  } else {  // Not a Grasp command..
-    if (cmd == "INSTALL\r\n") {
-      gFsmState = FSM::TendonInstall;
-    } else if (cmd == "TEST\r\n") {
-      gFsmState = FSM::Testing;
-    } else if (cmd == "CONTROL\r\n") {
-      gFsmState = FSM::Control;
-    } else if (cmd.substring(0, 3) == "LIM") {  // Comando esempio: LIM 1 125
-      auto id = cmd.substring(4, 5).toInt();
-      auto val = cmd.substring(6, 9).toInt();
-      fc.setMaxTorque(id, val);
-    } else if (cmd.substring(0, 5) == "INFO ") {
-      FingersController::VectorIdx IDX = (FingersController::VectorIdx) cmd.substring(5, cmd.lastIndexOf('\r')).toInt();
-      auto ID = fc.getMotorIdByVectorIndex(IDX);
-      fc.printFeedback(ID);
-      SerialBT.printf("Factor: %d\n", fc.getFactorFromPos(IDX,fc.readPos(ID)));
-    } else if (cmd.substring(0, 3) == "POS") {
-      u8 IDN = 4;
-      u8 IDs[IDN] = { 1, 2, 3, 4 };
-      s16 pos[IDN];
-      fc.readPositions(IDN, IDs, pos);
-      SerialBT.printf("Positions: %d %d %d %d\n", pos[0], pos[1], pos[2], pos[3]);
-    } else if (cmd.substring(0, 5) == "MOVE ") {
-      int ID = cmd.substring(5, 6).toInt();
-      int pos = cmd.substring(6, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(ID, pos, 2000, 200);
-    } else if (cmd.substring(0, 3) == "RT ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::ThumbRot, factor, 2000, 200);
-    } else if (cmd.substring(0, 3) == "FI ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Index, factor, 2000, 200);
-    } else if (cmd.substring(0, 3) == "FM ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Middle, factor, 2000, 200);
-    } else if (cmd.substring(0, 3) == "FR ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Ring, factor, 2000, 200);
-    } else if (cmd.substring(0, 3) == "FT ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Thumb, factor, 2000, 200);
-    } else if (cmd.substring(0, 10) == "SETCENTER ") {
-      int id = cmd.substring(10, 11).toInt();
-      fc.setCenterOfRange(id);
-    } else if (cmd.substring(0, 9) == "CALIBRATE") {
-<<<<<<< HEAD
-      fc.calibrateHand();
-    } else {
-=======
-      SerialBT.println("Starting calibration...");
-      if (fc.calibrateHand()) {
-        fc.saveCalibrationToStorage(&g_calibStorage);
-        if (g_calibStorage.save()) {
-          SerialBT.println("Calibration saved successfully!");
-          gFsmState = FSM::Control;
-        } else {
-          SerialBT.println("WARNING: Failed to save calibration!");
-        }
-      } else {
-        SerialBT.println("ERROR: Calibration failed!");
-      }
-    }
-    // ========== NEW CALIBRATION STORAGE COMMANDS ==========
-    else if (cmd == "CALIB_DUMP\r\n") {
-      g_calibStorage.dumpToSerial(&SerialBT);
-    }
-    else if (cmd == "CALIB_JSON\r\n") {
-      g_calibStorage.dumpAsJSON(&SerialBT);
-    }
-    else if (cmd == "CALIB_EXPORT\r\n") {
-      g_calibStorage.exportAsCommands(&SerialBT);
-    }
-    else if (cmd.startsWith("CALIB_SET ")) {
-      String args = cmd.substring(10);
-      args.trim();
-      g_calibStorage.parseSetCommand(args, &SerialBT);
-    }
-    else if (cmd == "CALIB_SAVE\r\n") {
-      if (g_calibStorage.save()) {
-        SerialBT.println("Calibration saved to flash");
-      } else {
-        SerialBT.println("ERROR: Save failed");
-      }
-    }
-    else if (cmd == "CALIB_RESET\r\n") {
-      g_calibStorage.factoryReset();
-      SerialBT.println("Calibration reset - restart to recalibrate");
-    }
-    else if (cmd == "CALIB_RELOAD\r\n") {
-      if (g_calibStorage.load()) {
-        fc.applyCalibrationFromStorage(&g_calibStorage);
-        SerialBT.println("Calibration reloaded from flash");
-      } else {
-        SerialBT.println("ERROR: Reload failed");
-      }
-    }
-    else if (cmd == "CALIB_STATUS\r\n") {
-      SerialBT.printf("Calibration State: %s\n", g_calibStorage.getStateString());
-      SerialBT.printf("Valid for operation: %s\n",
-                      g_calibStorage.isValid() ? "YES" : "NO");
-    }
-    else {
->>>>>>> 6c704d6 (calibration storage)
-      g_newClosurePercent = cmd.toInt();
-      if (BLUETOOTH) SerialBT.printf("ClosurePercent by Serial Cmd: %d\n", g_newClosurePercent);
-    }
+    logRobotFlow("[Robot] Requested grasp: " + FingersController::getGraspStringByType(graspType));
+    return;
   }
+
+  if (upper_cmd == "INSTALL") {
+    gFsmState = FSM::TendonInstall;
+    logRobotFlow("[Robot] FSM -> TendonInstall");
+    return;
+  }
+
+  if (upper_cmd == "TEST") {
+    gFsmState = FSM::Testing;
+    logRobotFlow("[Robot] FSM -> Testing");
+    return;
+  }
+
+  if (upper_cmd == "CONTROL") {
+    gFsmState = FSM::Control;
+    logRobotFlow("[Robot] FSM -> Control");
+    return;
+  }
+
+  if (upper_cmd.startsWith("LIM ")) {
+    String args = trimmed_cmd.substring(4);
+    args.trim();
+    const int split = args.indexOf(' ');
+    if (split < 0) {
+      logRobotFlow("[Robot] LIM format: LIM <servoId> <torque>");
+      return;
+    }
+
+    int id = 0;
+    int torque = 0;
+    if (!tryParseIntValue(args.substring(0, split), &id) ||
+        !tryParseIntValue(args.substring(split + 1), &torque)) {
+      logRobotFlow("[Robot] LIM requires numeric values");
+      return;
+    }
+    if (id < 1 || id > 5) {
+      logRobotFlow("[Robot] LIM servoId must be between 1 and 5");
+      return;
+    }
+
+    fc.setMaxTorque(id, torque);
+    logRobotFlow("[Robot] Torque limit updated for servo " + String(id) + " -> " + String(torque));
+    return;
+  }
+
+  if (upper_cmd.startsWith("INFO ")) {
+    int idx = 0;
+    if (!tryParseIntValue(trimmed_cmd.substring(5), &idx) || idx < 0 || idx > 4) {
+      logRobotFlow("[Robot] INFO requires a vector index between 0 and 4");
+      return;
+    }
+
+    FingersController::VectorIdx vector_idx = static_cast<FingersController::VectorIdx>(idx);
+    const int id = fc.getMotorIdByVectorIndex(vector_idx);
+    fc.printFeedback(id);
+    SerialBT.printf("Factor: %d\n", fc.getFactorFromPos(vector_idx, fc.readPos(id)));
+    return;
+  }
+
+  if (upper_cmd == "POS") {
+    const u8 IDN = 5;
+    u8 IDs[IDN] = { 1, 2, 3, 4, 5 };
+    s16 pos[IDN];
+    fc.readPositions(IDN, IDs, pos);
+    SerialBT.printf("Positions: %d %d %d %d %d\n", pos[0], pos[1], pos[2], pos[3], pos[4]);
+    return;
+  }
+
+  if (upper_cmd.startsWith("MOVE ")) {
+    String args = trimmed_cmd.substring(5);
+    args.trim();
+    const int split = args.indexOf(' ');
+    if (split < 0) {
+      logRobotFlow("[Robot] MOVE format: MOVE <servoId> <position>");
+      return;
+    }
+
+    int id = 0;
+    int position = 0;
+    if (!tryParseIntValue(args.substring(0, split), &id) ||
+        !tryParseIntValue(args.substring(split + 1), &position)) {
+      logRobotFlow("[Robot] MOVE requires numeric values");
+      return;
+    }
+    if (id < 1 || id > 5) {
+      logRobotFlow("[Robot] MOVE servoId must be between 1 and 5");
+      return;
+    }
+
+    fc.moveUntilLoadLimitHit(id, position, 2000, 200);
+    logRobotFlow("[Robot] MOVE executed for servo " + String(id) + " -> " + String(position));
+    return;
+  }
+
+  if (upper_cmd.startsWith("RT ")) {
+    int factor = 0;
+    if (!tryParseIntValue(trimmed_cmd.substring(3), &factor)) {
+      logRobotFlow("[Robot] RT requires a numeric factor");
+      return;
+    }
+    factor = constrain(factor, 0, 100);
+    fc.moveUntilLoadLimitHit(FingersController::VectorIdx::ThumbRot, factor, 2000, 200);
+    return;
+  }
+
+  if (upper_cmd.startsWith("FI ")) {
+    int factor = 0;
+    if (!tryParseIntValue(trimmed_cmd.substring(3), &factor)) {
+      logRobotFlow("[Robot] FI requires a numeric factor");
+      return;
+    }
+    factor = constrain(factor, 0, 100);
+    fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Index, factor, 2000, 200);
+    return;
+  }
+
+  if (upper_cmd.startsWith("FM ")) {
+    int factor = 0;
+    if (!tryParseIntValue(trimmed_cmd.substring(3), &factor)) {
+      logRobotFlow("[Robot] FM requires a numeric factor");
+      return;
+    }
+    factor = constrain(factor, 0, 100);
+    fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Middle, factor, 2000, 200);
+    return;
+  }
+
+  if (upper_cmd.startsWith("FR ")) {
+    int factor = 0;
+    if (!tryParseIntValue(trimmed_cmd.substring(3), &factor)) {
+      logRobotFlow("[Robot] FR requires a numeric factor");
+      return;
+    }
+    factor = constrain(factor, 0, 100);
+    fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Ring, factor, 2000, 200);
+    return;
+  }
+
+  if (upper_cmd.startsWith("FT ")) {
+    int factor = 0;
+    if (!tryParseIntValue(trimmed_cmd.substring(3), &factor)) {
+      logRobotFlow("[Robot] FT requires a numeric factor");
+      return;
+    }
+    factor = constrain(factor, 0, 100);
+    fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Thumb, factor, 2000, 200);
+    return;
+  }
+
+  if (upper_cmd.startsWith("SETCENTER ")) {
+    int id = 0;
+    if (!tryParseIntValue(trimmed_cmd.substring(10), &id) || id < 1 || id > 5) {
+      logRobotFlow("[Robot] SETCENTER requires a servoId between 1 and 5");
+      return;
+    }
+    fc.setCenterOfRange(id);
+    return;
+  }
+
+  if (upper_cmd == "CALIBRATE") {
+    logRobotFlow("[Robot] Starting calibration flow");
+    if (fc.calibrateHand()) {
+      fc.saveCalibrationToStorage(&g_calibStorage);
+      if (g_calibStorage.save()) {
+        logRobotFlow("[Robot] Calibration saved successfully");
+        gFsmState = FSM::Control;
+      } else {
+        logRobotFlow("[Robot] WARNING: Failed to save calibration");
+      }
+    } else {
+      logRobotFlow("[Robot] ERROR: Calibration failed");
+    }
+    return;
+  }
+
+  if (upper_cmd == "CALIB_DUMP") {
+    g_calibStorage.dumpToSerial(&SerialBT);
+    return;
+  }
+
+  if (upper_cmd == "CALIB_JSON") {
+    g_calibStorage.dumpAsJSON(&SerialBT);
+    return;
+  }
+
+  if (upper_cmd == "CALIB_EXPORT") {
+    g_calibStorage.exportAsCommands(&SerialBT);
+    return;
+  }
+
+  if (upper_cmd.startsWith("CALIB_SET ")) {
+    String args = trimmed_cmd.substring(10);
+    args.trim();
+    g_calibStorage.parseSetCommand(args, &SerialBT);
+    return;
+  }
+
+  if (upper_cmd == "CALIB_SAVE") {
+    if (g_calibStorage.save()) {
+      logRobotFlow("[Robot] Calibration saved to flash");
+    } else {
+      logRobotFlow("[Robot] ERROR: Calibration save failed");
+    }
+    return;
+  }
+
+  if (upper_cmd == "CALIB_RESET") {
+    g_calibStorage.factoryReset();
+    logRobotFlow("[Robot] Calibration reset - restart required");
+    return;
+  }
+
+  if (upper_cmd == "CALIB_RELOAD") {
+    if (g_calibStorage.load()) {
+      fc.applyCalibrationFromStorage(&g_calibStorage);
+      logRobotFlow("[Robot] Calibration reloaded from flash");
+    } else {
+      logRobotFlow("[Robot] ERROR: Calibration reload failed");
+    }
+    return;
+  }
+
+  if (upper_cmd == "CALIB_STATUS") {
+    SerialBT.printf("Calibration State: %s\n", g_calibStorage.getStateString());
+    SerialBT.printf("Valid for operation: %s\n",
+                    g_calibStorage.isValid() ? "YES" : "NO");
+    return;
+  }
+
+  int closure_percent = 0;
+  if (tryParseIntValue(trimmed_cmd, &closure_percent)) {
+    const int constrained_percent = constrain(closure_percent, 0, 100);
+    if (constrained_percent != closure_percent) {
+      logRobotFlow("[Robot] Closure percent clamped from " + String(closure_percent) +
+                   " to " + String(constrained_percent));
+    }
+    g_newClosurePercent = constrained_percent;
+    logRobotFlow("[Robot] Requested closure percent -> " + String(g_newClosurePercent));
+    return;
+  }
+
+  logRobotFlow("[Robot] Unknown command: " + trimmed_cmd);
 }
 
 void prepareGrasp() {
@@ -357,7 +736,7 @@ void loop() {
     auto cmd = SerialBT.readString();
     auto t2 = millis();
     SerialBT.printf("dt1: %d ms\n", t2 - t1);
-    SerialBT.printf("string: %s \n", cmd);
+    SerialBT.printf("string: %s \n", cmd.c_str());
     processStringCmd(cmd);
   }
 
@@ -400,10 +779,6 @@ void loop() {
     // test();
   } else if (gFsmState == FSM::DoNothing) {
     delay(10);
-<<<<<<< HEAD
-  }  
-    
-=======
   } else if (gFsmState == FSM::CalibrationRequired) {
     // Calibration required - block operation
     static unsigned long lastWarning = 0;
@@ -419,6 +794,5 @@ void loop() {
     // This state blocks all motion
     delay(100);
   }  
->>>>>>> 6c704d6 (calibration storage)
   // limitTemp();
 }

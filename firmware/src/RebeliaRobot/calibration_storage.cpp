@@ -87,7 +87,9 @@ CalibrationState CalibrationStorage::initialize() {
 }
 
 bool CalibrationStorage::load() {
+    Serial.println("[CalibStorage] Loading calibration blob from NVS");
     if (!m_prefs.begin(CALIB_NAMESPACE, true)) {  // true = read-only
+        Serial.println("[CalibStorage] Failed to open NVS for reading");
         return false;
     }
 
@@ -102,7 +104,9 @@ bool CalibrationStorage::load() {
     }
 
     // Validate loaded data
-    return validate();
+    const bool valid = validate();
+    Serial.printf("[CalibStorage] Load validation result: %s\n", valid ? "OK" : "FAILED");
+    return valid;
 }
 
 bool CalibrationStorage::save() {
@@ -177,6 +181,7 @@ void CalibrationStorage::factoryReset() {
 
 void CalibrationStorage::setMotorMin(int idx, int16_t value) {
     if (idx >= 0 && idx < NUM_MOTORS) {
+        Serial.printf("[CalibStorage] %s_MIN <- %d\n", MOTOR_NAMES[idx], value);
         m_data.motor_min[idx] = value;
         m_dirty = true;
     }
@@ -184,6 +189,7 @@ void CalibrationStorage::setMotorMin(int idx, int16_t value) {
 
 void CalibrationStorage::setMotorMax(int idx, int16_t value) {
     if (idx >= 0 && idx < NUM_MOTORS) {
+        Serial.printf("[CalibStorage] %s_MAX <- %d\n", MOTOR_NAMES[idx], value);
         m_data.motor_max[idx] = value;
         m_dirty = true;
     }
@@ -273,6 +279,7 @@ void CalibrationStorage::updateCRC() {
 }
 
 bool CalibrationStorage::tryLoadBackup() {
+    Serial.println("[CalibStorage] Attempting to load backup blob");
     if (!m_prefs.begin(CALIB_NAMESPACE, true)) {
         return false;
     }
@@ -291,11 +298,13 @@ bool CalibrationStorage::tryLoadBackup() {
 
     if (validate()) {
         // Backup is valid - restore as primary
+        Serial.println("[CalibStorage] Backup blob validated, restoring as primary");
         save();
         return true;
     }
 
     // Restore original
+    Serial.println("[CalibStorage] Backup blob validation failed");
     m_data = original;
     return false;
 }
@@ -387,6 +396,7 @@ bool CalibrationStorage::parseSetCommand(const String& args, BluetoothSerial* bt
     key.toUpperCase();
 
     int value = args.substring(spaceIdx + 1).toInt();
+    Serial.printf("[CalibStorage] CALIB_SET %s %d\n", key.c_str(), value);
 
     // Motor MIN values
     if (key == "INDEX_MIN") { setMotorMin(0, value); }
