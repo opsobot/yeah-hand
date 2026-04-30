@@ -79,6 +79,7 @@ public:
 public:
   static GraspType getGraspTypeByString(const String& cmd);
   static String getGraspStringByType(FingersController::GraspType type);
+  static const char* getVectorName(VectorIdx idx);
 
   FingersController(BluetoothSerial* _serialBT);
   ~FingersController();
@@ -110,6 +111,9 @@ public:
   void getDataFromTrajectory(GraspType grasp_type, int frame, int data[6]);
   int getTrajectorySize(GraspType grasp_type);
   int getMotorIdByVectorIndex(const VectorIdx idx);
+  int getRangeMin(VectorIdx idx) const;
+  int getRangeMax(VectorIdx idx) const;
+  void setCalibratedRange(VectorIdx idx, int open_position, int closed_position);
 
   // High Level
   void action(const FingersController::GraspType grasp_type, const int factor);
@@ -118,6 +122,8 @@ public:
   void buildPositionsFromFactors(const uint8_t factors[5], s16 positions[5]);
   bool executeTimedStep(const uint8_t factors[5], uint16_t speed, uint8_t accel,
                         unsigned long move_timeout_ms, unsigned long hold_time_ms);
+  bool moveFingerPercent(VectorIdx idx, int percent, u16 speed = 2000, u8 acc = 200);
+  bool movePosePercent(const uint8_t factors[5], u16 speed = 2000, u8 acc = 200);
 
   // Motion
   int moveFingerSync(const int factor, VectorIdx idx);
@@ -128,6 +134,11 @@ public:
   void enableTorque(u8 ID, bool enable);
   void setMaxTorque(const u8 ID, const u16 maxTorque);
   void setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]);
+  bool pingServo(u8 ID);
+  bool calibrationJog(u8 ID, int delta, u16 speed = 300, u8 acc = 20, u16 torque = 150);
+  bool calibrationMoveRaw(u8 ID, s16 position, u16 speed = 300, u8 acc = 20, u16 torque = 150);
+  bool calibrationMoveFactor(VectorIdx idx, int factor, u16 speed = 300, u8 acc = 20, u16 torque = 150);
+  bool calibrationWiggle(u8 ID, int delta = 25, u16 speed = 300, u8 acc = 20, u16 torque = 150);
 
   // Info
   bool isMoving(const u8 ID);

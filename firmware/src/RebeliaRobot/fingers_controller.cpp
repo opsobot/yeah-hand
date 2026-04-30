@@ -97,7 +97,25 @@ String FingersController::getGraspStringByType(FingersController::GraspType type
   return text;
 }
 
+const char* FingersController::getVectorName(VectorIdx idx) {
+  switch (idx) {
+    case VectorIdx::Index:
+      return "INDEX";
+    case VectorIdx::Middle:
+      return "MIDDLE";
+    case VectorIdx::Ring:
+      return "RING";
+    case VectorIdx::Thumb:
+      return "THUMB";
+    case VectorIdx::ThumbRot:
+      return "THUMB_ROT";
+    default:
+      return "UNKNOWN";
+  }
+}
+
 void FingersController::enableTorque(u8 ID, bool enable) {
+  SerialBT->printf("[FingersController] Torque %s for servo %u\n", enable ? "enabled" : "disabled", ID);
   st.EnableTorque(ID, enable);
 }
 
@@ -116,10 +134,14 @@ FingersController::~FingersController() {
 }
 
 void FingersController::tendonInstallation() {
+  SerialBT->println("[FingersController] Tendon installation posture start");
   for (int IDX = VectorIdx::Index; IDX <= VectorIdx::Thumb; IDX++) {
     int ID = getMotorIdByVectorIndex((VectorIdx)IDX);
+    SerialBT->printf("[FingersController] Tendon install move %s servo=%d target=%d\n",
+                     getVectorName((VectorIdx)IDX), ID, MOTORS_POS_TENDON_INSTALLATION[IDX]);
     moveUntilLoadLimitHit(ID, MOTORS_POS_TENDON_INSTALLATION[IDX], 2000, 50);
   }
+  SerialBT->println("[FingersController] Tendon installation posture complete");
 }
 
 void FingersController::setCenterOfRange(int motor_id) {
@@ -225,8 +247,30 @@ bool FingersController::calibrateHand() {
 }
 
 int FingersController::getPosFromFactor(int finger_idx, int factor) {
-  int absolute_pos_value = map(factor, 0, 100, MOTORS_POS_RANGE[finger_idx][RANGE_MIN], MOTORS_POS_RANGE[finger_idx][RANGE_MAX]);
-  absolute_pos_value = limit(absolute_pos_value, MOTORS_POS_RANGE[finger_idx][RANGE_MIN], MOTORS_POS_RANGE[finger_idx][RANGE_MAX]);
+  if (finger_idx < VectorIdx::Index || finger_idx > VectorIdx::ThumbRot) {
+    SerialBT->printf("[FingersController] Percent map rejected: invalid finger index=%d\n", finger_idx);
+    return 2048;
+  }
+
+  const int clamped_factor = constrain(factor, 0, 100);
+  if (clamped_factor != factor) {
+    SerialBT->printf("[FingersController] Percent clamped %s from %d to %d\n",
+                     getVectorName(static_cast<VectorIdx>(finger_idx)), factor, clamped_factor);
+  }
+
+  const int open_position = MOTORS_POS_RANGE[finger_idx][RANGE_MIN];
+  const int closed_position = MOTORS_POS_RANGE[finger_idx][RANGE_MAX];
+  const long travel = static_cast<long>(closed_position) - static_cast<long>(open_position);
+  int absolute_pos_value = static_cast<int>(open_position + ((travel * clamped_factor) / 100L));
+  absolute_pos_value = limit(absolute_pos_value, open_position, closed_position);
+
+  SerialBT->printf("[FingersController] Percent map %s servo=%d percent=%d open=%d closed=%d target=%d\n",
+                   getVectorName(static_cast<VectorIdx>(finger_idx)),
+                   getMotorIdByVectorIndex(static_cast<VectorIdx>(finger_idx)),
+                   clamped_factor,
+                   open_position,
+                   closed_position,
+                   absolute_pos_value);
   return absolute_pos_value;
 }
 
@@ -354,6 +398,35 @@ void FingersController::buildPositionsFromFactors(const uint8_t factors[5], s16 
   }
 }
 
+bool FingersController::moveFingerPercent(VectorIdx idx, int percent, u16 speed, u8 acc) {
+  if (idx < VectorIdx::Index || idx > VectorIdx::ThumbRot) {
+    SerialBT->printf("[FingersController] Percent move rejected: invalid finger index=%d\n", idx);
+    return false;
+  }
+
+  const int clamped_percent = constrain(percent, 0, 100);
+  const int target = getPosFromFactor(idx, clamped_percent);
+  const int servo_id = getMotorIdByVectorIndex(idx);
+  SerialBT->printf("[FingersController] Percent move %s percent=%d servo=%d target=%d speed=%u accel=%u\n",
+                   getVectorName(idx), clamped_percent, servo_id, target, speed, acc);
+  moveUntilLoadLimitHit(static_cast<u8>(servo_id), static_cast<s16>(target), speed, acc);
+  return true;
+}
+
+bool FingersController::movePosePercent(const uint8_t factors[5], u16 speed, u8 acc) {
+  const u8 IDN = 5;
+  u8 IDs[IDN] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  s16 positions[IDN];
+  u16 speed_values[IDN] = { speed, speed, speed, speed, speed };
+  u8 acc_values[IDN] = { acc, acc, acc, acc, acc };
+
+  buildPositionsFromFactors(factors, positions);
+  SerialBT->printf("[FingersController] Pose percent move factors=[%u,%u,%u,%u,%u] speed=%u accel=%u\n",
+                   factors[0], factors[1], factors[2], factors[3], factors[4], speed, acc);
+  move(IDN, IDs, positions, speed_values, acc_values);
+  return true;
+}
+
 bool FingersController::executeTimedStep(const uint8_t factors[5], uint16_t speed, uint8_t accel,
                                          unsigned long move_timeout_ms, unsigned long hold_time_ms) {
   const u8 IDN = 5;
@@ -386,6 +459,106 @@ int FingersController::getMotorIdByVectorIndex(const VectorIdx idx) {
   return idx + 1;
 }
 
+int FingersController::getRangeMin(VectorIdx idx) const {
+  return MOTORS_POS_RANGE[idx][RANGE_MIN];
+}
+
+int FingersController::getRangeMax(VectorIdx idx) const {
+  return MOTORS_POS_RANGE[idx][RANGE_MAX];
+}
+
+void FingersController::setCalibratedRange(VectorIdx idx, int open_position, int closed_position) {
+  MOTORS_POS_RANGE[idx][RANGE_MIN] = constrain(open_position, MOTOR_POS_ABSOLUTE_MIN, MOTOR_POS_ABSOLUTE_MAX);
+  MOTORS_POS_RANGE[idx][RANGE_MAX] = constrain(closed_position, MOTOR_POS_ABSOLUTE_MIN, MOTOR_POS_ABSOLUTE_MAX);
+  SerialBT->printf("[FingersController] Safe range set %s servo=%d open=%d closed=%d travel=%d\n",
+                   getVectorName(idx),
+                   getMotorIdByVectorIndex(idx),
+                   MOTORS_POS_RANGE[idx][RANGE_MIN],
+                   MOTORS_POS_RANGE[idx][RANGE_MAX],
+                   abs(MOTORS_POS_RANGE[idx][RANGE_MAX] - MOTORS_POS_RANGE[idx][RANGE_MIN]));
+}
+
+bool FingersController::pingServo(u8 ID) {
+  const int result = st.Ping(ID);
+  if (result != -1) {
+    SerialBT->printf("[FingersController] Ping OK servo=%u response=%d\n", ID, result);
+    Serial.printf("[FingersController] Ping OK servo=%u response=%d\n", ID, result);
+    return true;
+  }
+
+  SerialBT->printf("[FingersController] Ping FAILED servo=%u\n", ID);
+  Serial.printf("[FingersController] Ping FAILED servo=%u\n", ID);
+  return false;
+}
+
+bool FingersController::calibrationMoveRaw(u8 ID, s16 position, u16 speed, u8 acc, u16 torque) {
+  if (ID < 1 || ID > MAX_SERVOS) {
+    SerialBT->printf("[FingersController] Calibration raw move rejected: servo %u is outside 1-%d\n", ID, MAX_SERVOS);
+    return false;
+  }
+
+  const s16 target = constrain(position, MOTOR_POS_ABSOLUTE_MIN, MOTOR_POS_ABSOLUTE_MAX);
+  const int previousTorque = readMaxTorque(ID);
+
+  SerialBT->printf("[FingersController] Calibration raw move servo=%u target=%d speed=%u accel=%u torque=%u\n",
+                   ID, target, speed, acc, torque);
+
+  setMaxTorque(ID, torque);
+  moveUntilLoadLimitHit(ID, target, speed, acc);
+
+  if (previousTorque >= 0 && previousTorque <= 1000) {
+    setMaxTorque(ID, previousTorque);
+    SerialBT->printf("[FingersController] Calibration raw move restored servo=%u torque=%d\n", ID, previousTorque);
+  }
+
+  const int finalPos = readPos(ID);
+  const int finalLoad = readLoad(ID);
+  SerialBT->printf("[FingersController] Calibration raw move complete servo=%u final=%d load=%d\n",
+                   ID, finalPos, finalLoad);
+  return true;
+}
+
+bool FingersController::calibrationJog(u8 ID, int delta, u16 speed, u8 acc, u16 torque) {
+  const int current = readPos(ID);
+  if (current < MOTOR_POS_ABSOLUTE_MIN || current > MOTOR_POS_ABSOLUTE_MAX) {
+    SerialBT->printf("[FingersController] Calibration jog rejected: servo=%u unreadable current=%d\n", ID, current);
+    return false;
+  }
+
+  const int target = constrain(current + delta, MOTOR_POS_ABSOLUTE_MIN, MOTOR_POS_ABSOLUTE_MAX);
+  SerialBT->printf("[FingersController] Calibration jog servo=%u current=%d delta=%d target=%d\n",
+                   ID, current, delta, target);
+  return calibrationMoveRaw(ID, target, speed, acc, torque);
+}
+
+bool FingersController::calibrationMoveFactor(VectorIdx idx, int factor, u16 speed, u8 acc, u16 torque) {
+  const int constrainedFactor = constrain(factor, 0, 100);
+  const int target = getPosFromFactor(idx, constrainedFactor);
+  SerialBT->printf("[FingersController] Calibration factor move %s servo=%d factor=%d target=%d\n",
+                   getVectorName(idx),
+                   getMotorIdByVectorIndex(idx),
+                   constrainedFactor,
+                   target);
+  return calibrationMoveRaw(getMotorIdByVectorIndex(idx), target, speed, acc, torque);
+}
+
+bool FingersController::calibrationWiggle(u8 ID, int delta, u16 speed, u8 acc, u16 torque) {
+  const int start = readPos(ID);
+  if (start < MOTOR_POS_ABSOLUTE_MIN || start > MOTOR_POS_ABSOLUTE_MAX) {
+    SerialBT->printf("[FingersController] Calibration identify rejected: servo=%u unreadable current=%d\n", ID, start);
+    return false;
+  }
+
+  const int first = constrain(start + delta, MOTOR_POS_ABSOLUTE_MIN, MOTOR_POS_ABSOLUTE_MAX);
+  SerialBT->printf("[FingersController] Calibration identify servo=%u start=%d wiggle=%d first=%d\n",
+                   ID, start, delta, first);
+  if (!calibrationMoveRaw(ID, first, speed, acc, torque)) {
+    return false;
+  }
+  delay(300);
+  return calibrationMoveRaw(ID, start, speed, acc, torque);
+}
+
 // void FingersController::moveFingerAsync(const int factor, VectorIdx idx, u16 speed, u8 acc) {
 //   s16 pos = map(factor, 0, 100, MOTORS_POS_RANGE[idx][RANGE_MIN], MOTORS_POS_RANGE[idx][RANGE_MAX]);
 //   pos = limit(pos, MOTORS_POS_RANGE[idx][RANGE_MIN], MOTORS_POS_RANGE[idx][RANGE_MAX]);
@@ -413,10 +586,13 @@ int FingersController::moveFingerSync(const u8 ID, const s16 pos, const u16 spee
 
 void FingersController::moveFingerAsync(const int factor, VectorIdx idx, u16 speed, u8 acc) {
   const s16 pos = getPosFromFactor(idx, factor);
+  SerialBT->printf("[FingersController] Async finger move %s factor=%d target=%d\n",
+                   getVectorName(idx), factor, pos);
   moveFingerAsync(pos, getMotorIdByVectorIndex(idx), speed, acc);
 }
 
 void FingersController::moveFingerAsync(const s16 pos, const u8 ID, const u16 speed, const u8 acc) {
+  SerialBT->printf("[FingersController] Async raw move servo=%u target=%d speed=%u accel=%u\n", ID, pos, speed, acc);
   u8 IDs[1] = { ID };
   s16 Pos[1] = { pos };
   u16 Speed[1] = { speed };
@@ -433,7 +609,11 @@ void FingersController::moveAllFingersToMiddlePosition() {
 }
 
 int FingersController::readPos(const u8 ID) {
-  return st.ReadPos(ID);
+  const int pos = st.ReadPos(ID);
+  if (pos < 0) {
+    SerialBT->printf("[FingersController] Read position failed servo=%u result=%d\n", ID, pos);
+  }
+  return pos;
 }
 
 bool FingersController::isMoving(const u8 ID) {
@@ -555,6 +735,7 @@ void FingersController::changeID(const int currentId, const int newId) {
 }
 
 void FingersController::readPositions(u8 IDN, u8 IDs[], s16 positions[]) {
+  SerialBT->printf("[FingersController] Sync read positions count=%u\n", IDN);
 
   st.syncReadPacketTx(IDs, IDN, SMS_STS_PRESENT_POSITION_L, 2);
 
@@ -643,10 +824,19 @@ void FingersController::moveUntilLoadLimitHit(VectorIdx idx, const int factor, u
 
 void FingersController::move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]){
   SerialBT->printf("[FingersController] Sync move start count=%u\n", IDN);
+  for (u8 i = 0; i < IDN; ++i) {
+    SerialBT->printf("[FingersController]   servo=%u target=%d speed=%u accel=%u\n",
+                     IDs[i], Pos[i], Speed[i], Acc[i]);
+  }
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
 }
 
 void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
+  SerialBT->printf("[FingersController] Load-limited move start count=%u\n", IDN);
+  for (u8 i = 0; i < IDN; ++i) {
+    SerialBT->printf("[FingersController]   servo=%u target=%d speed=%u accel=%u\n",
+                     IDs[i], Pos[i], Speed[i], Acc[i]);
+  }
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
   delay(100);
   unsigned long t1 = millis();
@@ -660,6 +850,8 @@ void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 S
     }
   }
   setCurPosAsTarget(IDN, IDs);
+  SerialBT->printf("[FingersController] Load-limited move complete count=%u elapsed=%lu\n",
+                   IDN, millis() - t1);
 }
 
 void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc) {
@@ -672,6 +864,7 @@ void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc)
 }
 
 void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
+  SerialBT->printf("[FingersController] Set max torque servo=%u value=%u\n", ID, maxTorque);
   st.EnableTorque(ID, 0);  // Disable torque
   st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, maxTorque);
   st.EnableTorque(ID, 1);  // Enable with limit
@@ -679,8 +872,10 @@ void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
 
 void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]) {
   if (IDN > MAX_SERVOS) {
+    SerialBT->printf("[FingersController] Set max torque rejected count=%u max=%d\n", IDN, MAX_SERVOS);
     return;
   }
+  SerialBT->printf("[FingersController] Set max torque batch count=%u\n", IDN);
   // Prepare 2-byte torque values
   u8 bytes[2 * IDN];  // 5 servos × 2 bytes each
 

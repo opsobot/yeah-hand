@@ -7,6 +7,36 @@ static const char* MOTOR_NAMES[NUM_MOTORS] = {
     "INDEX", "MIDDLE", "RING", "THUMB", "THUMB_ROT"
 };
 
+static bool parseStrictInt(const String& text, int* out_value) {
+    if (!out_value) {
+        return false;
+    }
+
+    String trimmed = text;
+    trimmed.trim();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+
+    int start = 0;
+    if (trimmed.charAt(0) == '-' || trimmed.charAt(0) == '+') {
+        start = 1;
+    }
+    if (start >= trimmed.length()) {
+        return false;
+    }
+
+    for (int i = start; i < trimmed.length(); ++i) {
+        const char ch = trimmed.charAt(i);
+        if (ch < '0' || ch > '9') {
+            return false;
+        }
+    }
+
+    *out_value = trimmed.toInt();
+    return true;
+}
+
 
 CalibrationStorage::CalibrationStorage()
     : m_state(CalibrationState::UNCHECKED)
@@ -106,11 +136,27 @@ bool CalibrationStorage::load() {
     // Validate loaded data
     const bool valid = validate();
     Serial.printf("[CalibStorage] Load validation result: %s\n", valid ? "OK" : "FAILED");
+    if (valid) {
+        m_state = CalibrationState::VALID;
+        m_dirty = false;
+    }
     return valid;
 }
 
 bool CalibrationStorage::save() {
     Serial.println("[CalibStorage] Saving calibration...");
+
+    if (m_data.completion_flags != CALIB_COMPLETE) {
+        Serial.printf("[CalibStorage] ERROR: Refusing save because completion flags are 0x%02X, expected 0x%02X\n",
+                      m_data.completion_flags,
+                      CALIB_COMPLETE);
+        return false;
+    }
+
+    if (!validateRanges()) {
+        Serial.println("[CalibStorage] ERROR: Refusing save because motor ranges are unsafe");
+        return false;
+    }
 
     // Update metadata
     m_data.magic = CALIB_MAGIC;
@@ -144,6 +190,7 @@ bool CalibrationStorage::save() {
     }
 
     m_dirty = false;
+    m_state = CalibrationState::VALID;
     Serial.printf("[CalibStorage] Saved successfully (count=%d)\n",
                   m_data.calibration_count);
     return true;
@@ -395,8 +442,19 @@ bool CalibrationStorage::parseSetCommand(const String& args, BluetoothSerial* bt
     key.trim();
     key.toUpperCase();
 
-    int value = args.substring(spaceIdx + 1).toInt();
+    int value = 0;
+    if (!parseStrictInt(args.substring(spaceIdx + 1), &value)) {
+        bt->println("ERROR: CALIB_SET value must be an integer");
+        return false;
+    }
     Serial.printf("[CalibStorage] CALIB_SET %s %d\n", key.c_str(), value);
+
+    if (value < MOTOR_POS_ABSOLUTE_MIN || value > MOTOR_POS_ABSOLUTE_MAX) {
+        bt->printf("ERROR: Value must be between %d and %d\n",
+                   MOTOR_POS_ABSOLUTE_MIN,
+                   MOTOR_POS_ABSOLUTE_MAX);
+        return false;
+    }
 
     // Motor MIN values
     if (key == "INDEX_MIN") { setMotorMin(0, value); }

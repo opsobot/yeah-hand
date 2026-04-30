@@ -174,6 +174,9 @@ public:
      * @param stage One of CALIB_STAGE_* constants
      */
     void markStageComplete(uint8_t stage) {
+        Serial.printf("[CalibStorage] Mark stage complete: old=0x%02X add=0x%02X\n",
+                      m_data.completion_flags,
+                      stage);
         m_data.completion_flags |= stage;
         m_dirty = true;
     }
@@ -182,6 +185,7 @@ public:
      * Reset all completion flags (start new calibration)
      */
     void resetCompletionFlags() {
+        Serial.println("[CalibStorage] Reset completion flags");
         m_data.completion_flags = 0;
         m_dirty = true;
     }

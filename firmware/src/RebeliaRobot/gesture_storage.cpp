@@ -42,6 +42,7 @@ GestureStorage::GestureStorage()
 
 void GestureStorage::initialize(BluetoothSerial* bt) {
   m_bt = bt;
+  log("[GestureStorage] Initializing gesture storage namespace");
   uint8_t active_count = 0;
   for (uint8_t slot = 0; slot < MAX_CUSTOM_GESTURES; ++slot) {
     SlotLoad load = loadSlotInternal(slot);
@@ -101,6 +102,7 @@ bool GestureStorage::appendEditorStep(const GestureStep& step, String* error) {
 }
 
 bool GestureStorage::loadGesture(uint8_t slot, GestureRecord* out_record) {
+  log("[GestureStorage] Load request slot " + String(slot));
   SlotLoad load = loadSlotInternal(slot);
   if (load.result != LoadResult::Active) {
     return false;
@@ -127,6 +129,7 @@ bool GestureStorage::loadGestureIntoEditor(uint8_t slot, String* error) {
 }
 
 bool GestureStorage::saveEditorToSlot(uint8_t slot, String* error) {
+  log("[GestureStorage] Save editor request slot " + String(slot));
   if (!isValidSlot(slot)) {
     if (error) {
       *error = "Slot must be between 0 and " + String(MAX_CUSTOM_GESTURES - 1);
@@ -186,6 +189,7 @@ bool GestureStorage::saveEditorToSlot(uint8_t slot, String* error) {
 }
 
 bool GestureStorage::deleteGesture(uint8_t slot, String* error) {
+  log("[GestureStorage] Delete request slot " + String(slot));
   if (!isValidSlot(slot)) {
     if (error) {
       *error = "Slot must be between 0 and " + String(MAX_CUSTOM_GESTURES - 1);
@@ -530,6 +534,7 @@ bool GestureStorage::readRecordFromBank(uint8_t slot, uint8_t bank, GestureRecor
   }
 
   if (!m_prefs.begin(GESTURE_NAMESPACE, true)) {
+    log("[GestureStorage] Failed to open NVS for bank read");
     return false;
   }
 
@@ -542,9 +547,11 @@ bool GestureStorage::readRecordFromBank(uint8_t slot, uint8_t bank, GestureRecor
 
 bool GestureStorage::writeRecordToBank(uint8_t slot, uint8_t bank, const GestureRecord& record) {
   if (!m_prefs.begin(GESTURE_NAMESPACE, false)) {
+    log("[GestureStorage] Failed to open NVS for bank write");
     return false;
   }
 
+  log("[GestureStorage] Writing slot " + String(slot) + " bank " + String(bank));
   String key = makeBankKey(slot, bank);
   size_t written = m_prefs.putBytes(key.c_str(), &record, sizeof(GestureRecord));
   m_prefs.end();
@@ -554,9 +561,11 @@ bool GestureStorage::writeRecordToBank(uint8_t slot, uint8_t bank, const Gesture
 
 bool GestureStorage::writeSelector(uint8_t slot, uint8_t bank) {
   if (!m_prefs.begin(GESTURE_NAMESPACE, false)) {
+    log("[GestureStorage] Failed to open NVS for selector write");
     return false;
   }
 
+  log("[GestureStorage] Committing selector slot " + String(slot) + " -> bank " + String(bank));
   String key = makeSelectorKey(slot);
   size_t written = m_prefs.putUChar(key.c_str(), bank);
   m_prefs.end();
