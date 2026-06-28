@@ -1,4 +1,5 @@
-
+#ifndef REBELIA_ROBOT_FINGERS_CONTROLLER_H
+#define REBELIA_ROBOT_FINGERS_CONTROLLER_H
 /*
 Rebelia-Hand-Firmware is the control software for the Rebelia Hand, an Active Prosthetic Hand device (see https://www.robotgarage.org).
 
@@ -15,13 +16,12 @@ The License Notices
     You should have received a copy of the GNU General Public License along with Rebelia-Hand-Firmware. If not, see <https://www.gnu.org/licenses/>. 
 */
 
-#include <stdexcept>
+#include <Arduino.h>
 #include <SCServo.h>
 #include "BluetoothSerial.h"
 
-#include <vector>
-#include <functional>
-using namespace std::placeholders;
+class CalibrationStorage;
+
 
 // the uart used to control servos.
 // GPIO 18 - S_RXD, GPIO 19 - S_TXD, as default.
@@ -79,17 +79,31 @@ public:
 public:
   static GraspType getGraspTypeByString(const String& cmd);
   static String getGraspStringByType(FingersController::GraspType type);
+  static const char* getVectorName(VectorIdx idx);
 
   FingersController(BluetoothSerial* _serialBT);
   ~FingersController();
 
-  // Setup
+  // // Setup
+  // void tendonInstallation();
+  // void setCenterOfRange(int motor_id);
+  // void calibrateHand();
+  // void changeID(const int currentId, const int newId);
+  // void setRangeByCurrentPos(u8 IDN, VectorIdx IDXs[], u8 rangeIndex);
+  // void setRangeByCurrentPos(VectorIdx IDX, u8 rangeIndex);
+
+  //setup
   void tendonInstallation();
   void setCenterOfRange(int motor_id);
-  void calibrateHand();
+  bool calibrateHand();  // CHANGED: Now returns bool
   void changeID(const int currentId, const int newId);
   void setRangeByCurrentPos(u8 IDN, VectorIdx IDXs[], u8 rangeIndex);
   void setRangeByCurrentPos(VectorIdx IDX, u8 rangeIndex);
+
+  // Calibration Storage Integration (NEW)
+  void applyCalibrationFromStorage(CalibrationStorage* storage);
+  void saveCalibrationToStorage(CalibrationStorage* storage);
+
 
   // Conversion
   int getPosFromFactor(int finger_idx, int factor);
@@ -97,11 +111,19 @@ public:
   void getDataFromTrajectory(GraspType grasp_type, int frame, int data[6]);
   int getTrajectorySize(GraspType grasp_type);
   int getMotorIdByVectorIndex(const VectorIdx idx);
+  int getRangeMin(VectorIdx idx) const;
+  int getRangeMax(VectorIdx idx) const;
+  void setCalibratedRange(VectorIdx idx, int open_position, int closed_position);
 
   // High Level
   void action(const FingersController::GraspType grasp_type, const int factor);
   void prepareGrasp(GraspType grasp_type);
   void grasp(const GraspType grasp_type, const int gesture_factor);
+  void buildPositionsFromFactors(const uint8_t factors[5], s16 positions[5]);
+  bool executeTimedStep(const uint8_t factors[5], uint16_t speed, uint8_t accel,
+                        unsigned long move_timeout_ms, unsigned long hold_time_ms);
+  bool moveFingerPercent(VectorIdx idx, int percent, u16 speed = 2000, u8 acc = 200);
+  bool movePosePercent(const uint8_t factors[5], u16 speed = 2000, u8 acc = 200);
 
   // Motion
   int moveFingerSync(const int factor, VectorIdx idx);
@@ -112,6 +134,11 @@ public:
   void enableTorque(u8 ID, bool enable);
   void setMaxTorque(const u8 ID, const u16 maxTorque);
   void setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]);
+  bool pingServo(u8 ID);
+  bool calibrationJog(u8 ID, int delta, u16 speed = 300, u8 acc = 20, u16 torque = 150);
+  bool calibrationMoveRaw(u8 ID, s16 position, u16 speed = 300, u8 acc = 20, u16 torque = 150);
+  bool calibrationMoveFactor(VectorIdx idx, int factor, u16 speed = 300, u8 acc = 20, u16 torque = 150);
+  bool calibrationWiggle(u8 ID, int delta = 25, u16 speed = 300, u8 acc = 20, u16 torque = 150);
 
   // Info
   bool isMoving(const u8 ID);
@@ -165,7 +192,7 @@ public:
     { 100, 100, 100, 100, 90, 100 }
   };
 
-  int MONKEY_FRAMES = 7;
+  int MONKEY_FRAMES = 4;
   int MONKEY_MATRIX[4][ANY_MATRIX_COLS] = {
     { 0, 0, 0, 0, 0, 0 },
     { 50, 50, 50, 50, 0, 70 },
@@ -182,6 +209,20 @@ public:
     { 60, 0, 0, 80, 70, 100 }
   };
 
+   // Getters for pinch calibration values (for storage)
+  int getPinchThumbFactor() const { return PINCH_MATRIX[0][VectorIdx::Thumb]; }
+  int getPinchThumbRotFactor() const { return PINCH_MATRIX[0][VectorIdx::ThumbRot]; }
+
+  // Setters for pinch calibration values (from storage)
+  void setPinchCalibration(int thumbFactor, int thumbRotFactor) {
+    for (int i = 0; i < PINCH_FRAMES; i++) {
+      int adjustedThumb = thumbFactor;
+      if (i >= 2) adjustedThumb += 5 * (i - 1);  // Progressive adjustment
+      PINCH_MATRIX[i][VectorIdx::Thumb] = adjustedThumb;
+      PINCH_MATRIX[i][VectorIdx::ThumbRot] = thumbRotFactor;
+    }
+  }
+
   const bool DEBUG_LOG = true;
 
 private:  // load control
@@ -192,3 +233,5 @@ private:
   SMS_STS st;
   BluetoothSerial* SerialBT;
 };
+
+#endif  // REBELIA_ROBOT_FINGERS_CONTROLLER_H
