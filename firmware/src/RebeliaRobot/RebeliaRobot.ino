@@ -138,10 +138,14 @@ void processStringCmd(const String& cmd) {
       auto val = cmd.substring(6, 9).toInt();
       fc.setMaxTorque(id, val);
     } else if (cmd.substring(0, 5) == "INFO ") {
-      FingersController::VectorIdx IDX = (FingersController::VectorIdx) cmd.substring(5, cmd.lastIndexOf('\r')).toInt();
-      auto ID = fc.getMotorIdByVectorIndex(IDX);
+      auto ID = cmd.substring(5, cmd.lastIndexOf('\r')).toInt();
+      auto IDX = fc.getVectorIndexByMotorID(ID);
+      if (IDX < 0 || IDX > FingersController::SERVOS_SIZE) {
+        SerialBT.printf("Wrong ID: %d, ID\n");
+        return;
+      }
       fc.printFeedback(ID);
-      SerialBT.printf("Factor: %d\n", fc.getFactorFromPos(IDX,fc.readPos(ID)));
+      SerialBT.printf("Factor: %d\n", fc.getFactorFromPos(IDX, fc.readPos(ID)));
     } else if (cmd.substring(0, 3) == "POS") {
       u8 IDN = 4;
       u8 IDs[IDN] = { 1, 2, 3, 4 };
@@ -154,24 +158,27 @@ void processStringCmd(const String& cmd) {
       fc.moveUntilLoadLimitHit(ID, pos, 2000, 200);
     } else if (cmd.substring(0, 3) == "RT ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::ThumbRot, factor, 2000, 200);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::ThumbRot, factor, 3073, 200);
     } else if (cmd.substring(0, 3) == "FI ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Index, factor, 2000, 200);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Index, factor, 3073, 200);
     } else if (cmd.substring(0, 3) == "FM ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Middle, factor, 2000, 200);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Middle, factor, 3073, 200);
     } else if (cmd.substring(0, 3) == "FR ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Ring, factor, 2000, 200);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Ring, factor, 3073, 200);
     } else if (cmd.substring(0, 3) == "FT ") {
       int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Thumb, factor, 2000, 200);
+      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Thumb, factor, 3073, 200);
     } else if (cmd.substring(0, 10) == "SETCENTER ") {
       int id = cmd.substring(10, 11).toInt();
       fc.setCenterOfRange(id);
     } else if (cmd.substring(0, 9) == "CALIBRATE") {
       fc.calibrateHand();
+    } else if (cmd.substring(0, 9) == "SETPINCH ") {
+      int offset = cmd.substring(9, cmd.lastIndexOf('\r')).toInt();
+      fc.setPinchOffset(offset);
     } else {
       g_newClosurePercent = cmd.toInt();
       if (BLUETOOTH) SerialBT.printf("ClosurePercent by Serial Cmd: %d\n", g_newClosurePercent);
@@ -220,7 +227,7 @@ void prepareGrasp() {
 // }
 
 void loop() {
-  auto t1 = millis();
+  auto t0 = millis();
 
   if (BLUETOOTH && SerialBT.available()) {
     auto t1 = millis();
@@ -270,7 +277,11 @@ void loop() {
     // test();
   } else if (gFsmState == FSM::DoNothing) {
     delay(10);
-  }  
-    
-  // limitTemp();
+  }
+
+  static auto t_safety = millis();
+  if (millis() - t_safety > 1000) {
+    fc.safetyFeature();
+    t_safety = millis();
+  }
 }

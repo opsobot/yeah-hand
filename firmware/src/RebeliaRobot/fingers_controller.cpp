@@ -127,69 +127,120 @@ void FingersController::setCenterOfRange(int motor_id) {
   }
 }
 
+void FingersController::setPinchOffset(int offset) {
+  if (abs(offset) > 20 ){
+    SerialBT->println("Please set a value between -20 and 20\n");
+    return;
+  }
+  for (int i = 0; i < PINCH_FRAMES; i++) {
+    PINCH_MATRIX[i][VectorIdx::Thumb] = PINCH_GRASP_THUMB_FLEXION + offset;
+  }
+  SerialBT->printf("Pinch grasp offset: %d\n", offset);
+}
+
+//void FingersController:: updateCenterOfRange(IDN, IDXs, RANGE_MIN){
+//
+//  setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 200, 200 });
+//
+//  for(int idx = 0; idx <= IDN; idx++){
+//
+//    const GOOD_RANGE_START = 64;
+//    const GOOD_RANGE_END = 255;
+//    auto motor_id = getMotorIdByVectorIdx(id);
+//    auto pos = readPos(motor_id);
+//    while (! (GOOD_RANGE_START < pos && pos < const GOOD_RANGE_END = 255) ){
+//      if (0 <= pos && pos <= GOOD_RANGE_START){
+//        SerialBT->printf("Setting center of range for servo motor id: %d", motor_id);
+//        // Unknown position ..set it as new center of range
+//        setCenterOfRange(motor_id);
+//        // Move CCW until end of range or hit
+//        moveUntilLoadLimitHit(motor_id, GOOD_RANGE_START, 3000, 250);
+//        pos = readPos(motor_id);
+//      } else
+//      if(pos > GOOD_RANGE_START){
+//        auto diff = pos - 128;
+//        // move the center of range more in the CW direction by diff
+//        moveFingerSync(motor_id, 2048 + diff );
+//        // now pos is 128 when hitting the CCW end of range
+//      }
+//    }
+//  }
+//}
+
+
 void FingersController::calibrateHand() {
 
   u8 IDN = 5;
   u8 IDN_Flex = 4;
   VectorIdx IDXs[IDN] = { VectorIdx::Index, VectorIdx::Middle, VectorIdx::Ring, VectorIdx::Thumb, VectorIdx::ThumbRot };
   u8 IDs[IDN] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
-  s16 START_POS_FOR_OPENING[IDN] = { 1000, 1000, 1000, 1200, 50 };
-  s16 START_POS_FOR_CLOSING[IDN] = { 2500, 2500, 2500, 1200, 4045 };
+  s16 START_POS_FOR_OPENING[IDN] = { 1000, 1000, 1000, 1200, 2048 };
+  s16 START_POS_FOR_CLOSING[IDN] = { 2500, 2500, 2500, 1200, 2048 };
   s16 END_POS_FOR_OPENING[IDN] = { 50, 50, 50, 50, 50 };
   s16 END_POS_FOR_CLOSING[IDN] = { 4045, 4045, 4045, 4045, 4045 };
   u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
   u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
 
   // Pre-position fingers for opening
-  setMaxTorque(IDN, IDs, (u16[]){ 500, 500, 500, 500, 500 });
+  setMaxTorque(IDN, IDs, (u16[]){ 250, 250, 250, 250, 250 });
   moveUntilLoadLimitHit(IDN, IDs, START_POS_FOR_OPENING, Speed, Acc);
 
-  // Open Hand calibration
-  setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 200, 200 });
+  // Open flexion calibration
+  setMaxTorque(IDN, IDs, (u16[]){ 75, 75, 75, 75, 200 });
   moveUntilLoadLimitHit(IDN, IDs, END_POS_FOR_OPENING, Speed, Acc);
-  moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) + 100, 4000, 250);  // move slightly back
+  // Move Index , Middle and Ring+Little flexion slightly back..
+  moveUntilLoadLimitHit(INDEX_ID, readPos(INDEX_ID) + 270, 4000, 250);
+  moveUntilLoadLimitHit(MIDDLE_ID, readPos(MIDDLE_ID) + 270, 4000, 250);
+  moveUntilLoadLimitHit(RING_ID, readPos(RING_ID) + 270, 4000, 250);
+  // Move Thumb Rotation slightly back
+  moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) + 100, 4000, 250);
+  // Store the min range positions (open flexion)
   setRangeByCurrentPos(IDN, IDXs, RANGE_MIN);
 
   // Pre-position fingers for closing
-  setMaxTorque(IDN_Flex, IDs, (u16[]){ 500, 500, 500, 500 });
+  setMaxTorque(IDN_Flex, IDs, (u16[]){ 200, 200, 200, 200 });
   moveUntilLoadLimitHit(IDN_Flex, IDs, START_POS_FOR_CLOSING, Speed, Acc);
 
   // Closed flexion calibration
-  setMaxTorque(IDN_Flex, IDs, (u16[]){ 300, 300, 300, 300 });
+  setMaxTorque(IDN_Flex, IDs, (u16[]){ 300, 300, 300, 600 });
   moveUntilLoadLimitHit(IDN_Flex, IDs, END_POS_FOR_CLOSING, Speed, Acc);
   setRangeByCurrentPos(IDN_Flex, IDXs, RANGE_MAX);
+
   // Rotated Thumb Calibration
   moveUntilLoadLimitHit(VectorIdx::Thumb, 0, 4000, 250);
-  setMaxTorque(THUMB_R_ID, 500);
+  setMaxTorque(THUMB_R_ID, 300);
   moveUntilLoadLimitHit(THUMB_R_ID, 4045, 4000, 250);
   moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) - 100, 4000, 250);  // move slightly back
   setRangeByCurrentPos(VectorIdx::ThumbRot, RANGE_MAX);
 
   // Open all
-  setMaxTorque(IDN, IDs, (u16[]){ 500, 500, 500, 500, 500 });
+  setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 200, 200 });
   moveUntilLoadLimitHit(IDN, IDXs, (u8[]){ 0, 0, 0, 0, 0 }, Speed, Acc);
 
   // Pinch Grasp Calibration
-  moveUntilLoadLimitHit(VectorIdx::Index, 50, 4000, 200);
-  moveUntilLoadLimitHit(VectorIdx::ThumbRot, PINCH_MATRIX[0][VectorIdx::ThumbRot], 4000, 200);
-  moveUntilLoadLimitHit(VectorIdx::Thumb, 60, 4000, 200);
-  setMaxTorque(THUMB_ID, 125);
-  moveUntilLoadLimitHit(VectorIdx::Thumb, 100, 4000, 50);
-  auto pinchThumbFactor = getFactorFromPos(VectorIdx::Thumb, readPos(THUMB_ID));
-  auto pinchThumbRotFactor = PINCH_MATRIX[0][VectorIdx::ThumbRot] + 5;
-  for (int i = 0; i < PINCH_FRAMES; i++) {
-    if (i >= 2) pinchThumbFactor += 5;
-    PINCH_MATRIX[i][VectorIdx::Thumb] = pinchThumbFactor;
-    PINCH_MATRIX[i][VectorIdx::ThumbRot] = pinchThumbRotFactor;
-  }
-  SerialBT->println("Pinch Grasp Calibrated.");
-  
+  // moveUntilLoadLimitHit(VectorIdx::Index, 100, 4000, 200);
+  // moveUntilLoadLimitHit(VectorIdx::ThumbRot, PINCH_MATRIX[0][VectorIdx::ThumbRot], 4000, 200);
+  // moveUntilLoadLimitHit(VectorIdx::Thumb, 0, 4000, 200);
+  // setMaxTorque(THUMB_ID, 400);
+  // moveUntilLoadLimitHit(VectorIdx::Thumb, 100, 4000, 50);
+  // auto pinchThumbFactor = getFactorFromPos(VectorIdx::Thumb, readPos(THUMB_ID)) -14;
+  // //auto pinchThumbRotFactor = PINCH_MATRIX[0][VectorIdx::ThumbRot] + 5;
+  // for (int i = 0; i < PINCH_FRAMES; i++) {
+  //   //if (i >= 2) pinchThumbFactor += 5;
+  //   PINCH_MATRIX[i][VectorIdx::Thumb] = pinchThumbFactor -14;
+  //   //PINCH_MATRIX[i][VectorIdx::ThumbRot] = pinchThumbRotFactor;
+  // }
+  // SerialBT->println("Pinch Grasp Calibrated.");
+
   // Open
   moveUntilLoadLimitHit(IDN, IDXs, (u8[]){ 0, 0, 0, 0, 0 }, Speed, Acc);
 
   auto degreeRange = [](int min, int max) {
     return (int)(((double)abs(max - min) / 4096.0) * 360.0);
   };
+
+  // Set final torque
+  setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 600, 200 });
 
   SerialBT->println("All servos calibrated!");
   auto iMin = getPosFromFactor(VectorIdx::Index, 0);
@@ -348,6 +399,14 @@ int FingersController::getMotorIdByVectorIndex(const VectorIdx idx) {
   return idx + 1;
 }
 
+int FingersController::getVectorIndexByMotorID(const int motor_id) {
+  if (motor_id > 0) {
+    return motor_id - 1;
+  } else
+    return -1;  // not valid
+}
+
+
 // void FingersController::moveFingerAsync(const int factor, VectorIdx idx, u16 speed, u8 acc) {
 //   s16 pos = map(factor, 0, 100, MOTORS_POS_RANGE[idx][RANGE_MIN], MOTORS_POS_RANGE[idx][RANGE_MAX]);
 //   pos = limit(pos, MOTORS_POS_RANGE[idx][RANGE_MIN], MOTORS_POS_RANGE[idx][RANGE_MAX]);
@@ -395,6 +454,10 @@ void FingersController::printLoad() {
 
 int FingersController::readLoad(const u8 ID) {
   return st.ReadLoad(ID);
+}
+
+int FingersController::readCurrent(const u8 ID) {
+  return st.ReadCurrent(ID);
 }
 
 void FingersController::action(const FingersController::GraspType grasp_type, const int factor) {
@@ -507,7 +570,7 @@ void FingersController::readPositions(u8 IDN, u8 IDs[], s16 positions[]) {
 
 bool FingersController::posMatch(u8 IDN, u8 IDs[], s16 target_pos[]) {
 
-  s16 cur_pos[MAX_SERVOS];
+  s16 cur_pos[SERVOS_SIZE];
   readPositions(IDN, IDs, cur_pos);
 
   bool allClose = true;
@@ -549,9 +612,9 @@ bool FingersController::stalled(u8 IDN, u8 IDs[]) {
 }
 
 void FingersController::setCurPosAsTarget(u8 IDN, u8 IDs[]) {
-  s16 curPos[MAX_SERVOS];
-  u16 Speed[MAX_SERVOS];
-  u8 Acc[MAX_SERVOS];
+  s16 curPos[SERVOS_SIZE];
+  u16 Speed[SERVOS_SIZE];
+  u8 Acc[SERVOS_SIZE];
   readPositions(IDN, IDs, curPos);
   for (int i = 0; i < IDN; i++) {
     Speed[i] = 2000;
@@ -577,11 +640,12 @@ void FingersController::moveUntilLoadLimitHit(VectorIdx idx, const int factor, u
   moveUntilLoadLimitHit(getMotorIdByVectorIndex(idx), pos, speed, acc);
 }
 
-void FingersController::move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]){
+void FingersController::move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
 }
 
 void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
+
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
   delay(100);
   unsigned long t1 = millis();
@@ -607,8 +671,10 @@ void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc)
 }
 
 void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
+
+  auto limitedMaxTorque = (u16)min(limits.MAX_LOAD, (int)maxTorque);
   st.EnableTorque(ID, 0);  // Disable torque
-  st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, maxTorque);
+  st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, limitedMaxTorque);
   st.EnableTorque(ID, 1);  // Enable with limit
 }
 
@@ -618,8 +684,9 @@ void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque
 
   // Convert to bytes
   for (int i = 0; i < 5; i++) {
-    bytes[i * 2] = MaxTorque[i] & 0xFF;             // Low byte
-    bytes[i * 2 + 1] = (MaxTorque[i] >> 8) & 0xFF;  // High byte
+    auto maxTorque = (u16)min(limits.MAX_LOAD, (int)MaxTorque[i]);
+    bytes[i * 2] = maxTorque & 0xFF;             // Low byte
+    bytes[i * 2 + 1] = (maxTorque >> 8) & 0xFF;  // High byte
   }
   // ONE SYNC WRITE - minimal delay!
   st.syncWrite(IDs, IDN, SMS_STS_TORQUE_LIMIT_L, bytes, 2);
@@ -635,4 +702,35 @@ void FingersController::setRangeByCurrentPos(u8 IDN, VectorIdx IDXs[], u8 rangeI
 void FingersController::setRangeByCurrentPos(VectorIdx IDX, u8 rangeIndex) {
   MOTORS_POS_RANGE[IDX][rangeIndex] = readPos(getMotorIdByVectorIndex(IDX));
   SerialBT->printf("Set IDX %d POS: %d\n", IDX, MOTORS_POS_RANGE[IDX][rangeIndex]);
+}
+
+// Safety
+void FingersController::safetyFeature() {
+  for (int id = 1; id <= FingersController::SERVOS_SIZE; id++) {
+    auto c = readCurrent(id);
+    auto l = readLoad(id);
+    auto t = readTemper(id);
+
+    // filter corrupted temperature values
+    bool tempValueInsideRange = (t >= 0 && t <= 120);
+    bool tempValueIsValid = false;
+    if (tempValueInsideRange) {
+      int tPrev = lastValidTemp[id];
+      if (tPrev >= 0 && abs(t - tPrev) > 5) {
+        tempValueIsValid = false;
+      } else {
+        tempValueIsValid = true;
+        lastValidTemp[id] = t;
+      }
+    }
+
+    auto fault = c >= limits.OVER_CURRENT || l >= limits.OVER_LOAD || tempValueInsideRange && tempValueIsValid && t >= limits.OVER_TEMP;
+
+    if (fault) {
+      enableTorque(id, false);
+      SerialBT->printf("Safety: disabled id %d (C:%d L:%d T:%d)!!\n", id, c, l, t);
+    } else {
+      enableTorque(id, true);
+    }
+  }
 }

@@ -27,7 +27,6 @@ using namespace std::placeholders;
 // GPIO 18 - S_RXD, GPIO 19 - S_TXD, as default.
 #define S_RXD 18
 #define S_TXD 19
-#define MAX_SERVOS 5
 
 static const bool DEBUG = false;
 
@@ -42,6 +41,13 @@ static int limit(const int val, const int a, const int b) {
 static bool isClose(int value, int target, int tolerance) {
   return abs(value - target) <= tolerance;
 }
+
+struct SafetyLimits {
+  int MAX_LOAD;
+  int OVER_CURRENT;
+  int OVER_LOAD;
+  int OVER_TEMP;
+};
 
 class FingersController {
 public:
@@ -86,10 +92,12 @@ public:
   // Setup
   void tendonInstallation();
   void setCenterOfRange(int motor_id);
+  //void updateCenterOfRange(IDN, IDXs, RANGE_MIN);
   void calibrateHand();
   void changeID(const int currentId, const int newId);
   void setRangeByCurrentPos(u8 IDN, VectorIdx IDXs[], u8 rangeIndex);
   void setRangeByCurrentPos(VectorIdx IDX, u8 rangeIndex);
+  void setPinchOffset(int offset);
 
   // Conversion
   int getPosFromFactor(int finger_idx, int factor);
@@ -97,11 +105,27 @@ public:
   void getDataFromTrajectory(GraspType grasp_type, int frame, int data[6]);
   int getTrajectorySize(GraspType grasp_type);
   int getMotorIdByVectorIndex(const VectorIdx idx);
+  int getVectorIndexByMotorID(const int motor_id);
+
 
   // High Level
   void action(const FingersController::GraspType grasp_type, const int factor);
   void prepareGrasp(GraspType grasp_type);
   void grasp(const GraspType grasp_type, const int gesture_factor);
+
+  // Info
+  bool isMoving(const u8 ID);
+  int readLoad(const u8 ID);
+  int readPos(const u8 ID);
+  int readTemper(const u8 ID);
+  int readCurrent(const u8 ID);
+  void pingTest(const u8 ID);
+  int readMaxTorque(const u8 ID);
+
+  // Print
+  void printFeedback(const int id);
+  void printLoad();
+
 
   // Motion
   int moveFingerSync(const int factor, VectorIdx idx);
@@ -112,18 +136,6 @@ public:
   void enableTorque(u8 ID, bool enable);
   void setMaxTorque(const u8 ID, const u16 maxTorque);
   void setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]);
-
-  // Info
-  bool isMoving(const u8 ID);
-  int readLoad(const u8 ID);
-  int readPos(const u8 ID);
-  int readTemper(const u8 ID);
-  void pingTest(const u8 ID);
-  int readMaxTorque(const u8 ID);
-
-  // Print
-  void printFeedback(const int id);
-  void printLoad();
 
   // Load Limit Motion
   void readPositions(u8 IDN, u8 IDs[], s16 positions[]);
@@ -138,7 +150,6 @@ public:
   void moveUntilLoadLimitHit(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Speed[], u8 Acc[]);
   void move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]);
 
-
 public:
   // Motors
   static const u8 INDEX_ID = 1;
@@ -146,7 +157,8 @@ public:
   static const u8 RING_ID = 3;
   static const u8 THUMB_ID = 4;
   static const u8 THUMB_R_ID = 5;
-  constexpr static int FINGER_IDs[5] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  constexpr static int SERVO_IDs[5] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  constexpr static int SERVOS_SIZE = 5;
 
 public:
   const int RANGE_MIN = 0;
@@ -174,19 +186,30 @@ public:
   };
 
   int PINCH_FRAMES = 5;
+  int PINCH_GRASP_THUMB_FLEXION = 65;
   int PINCH_MATRIX[7][ANY_MATRIX_COLS] = {
-    { 0, 0, 0, 65, 70, 0 },//60 safepinch 
-    { 45, 0, 0, 65, 70, 25 },
-    { 50, 0, 0, 70, 70, 50 },
-    { 55, 0, 0, 75, 70, 75 },
-    { 60, 0, 0, 80, 70, 100 }
+    { 0, 0, 0, PINCH_GRASP_THUMB_FLEXION, 78, 0 },  //60 safepinch
+    { 45, 0, 0, PINCH_GRASP_THUMB_FLEXION, 78, 25 },
+    { 50, 0, 0, PINCH_GRASP_THUMB_FLEXION, 78, 50 },
+    { 55, 0, 0, PINCH_GRASP_THUMB_FLEXION, 78, 75 },
+    { 60, 0, 0, PINCH_GRASP_THUMB_FLEXION, 78, 100 }
   };
 
   const bool DEBUG_LOG = true;
 
-private:  // load control
-  const int DYN_LOAD_POS_ERROR_THR = 50;
-  const int MIN_CLOSURE_FOR_LOAD_CTRL = 30;
+  // Safety
+private:
+  SafetyLimits limits{
+    .MAX_LOAD = 600,      // * 0.02 kg·cm = 12 kg·cm
+    .OVER_CURRENT = 150,  // * 6.5 mA = 900 mA
+    .OVER_LOAD = 600,     // * 0.02 kg·cm = 12 kg·cm
+    .OVER_TEMP = 60       // * 1 °C = 60 °C
+  };
+
+  int lastValidTemp[SERVOS_SIZE];
+
+public:
+  void safetyFeature();
 
 private:
   SMS_STS st;
