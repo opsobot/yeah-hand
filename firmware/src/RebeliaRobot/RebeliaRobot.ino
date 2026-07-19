@@ -24,6 +24,7 @@ The License Notices
 #define S_RXD 18
 #define S_TXD 19
 #define BLUETOOTH true
+#define DEBUG false
 
 static const bool SHOW_FEEDBACK = false;
 static const bool CALIBRATE_CENTER = false;
@@ -50,28 +51,11 @@ void servoIdDiscovery() {
 }
 
 void setup() {
-
   Serial.begin(115200);
   SerialBT.begin("YeahHand");
-  SerialBT.setTimeout(1);
+  SerialBT.setTimeout(50);
   //delay(10000);
   SerialBT.println("Yeah Hand Started!");
-
-  // servoIdDiscovery();
-
-  //fc.moveAllFingersToMiddlePosition()
-  if (CALIBRATE_CENTER) {
-    // fc.calibrateCenterOfRange(FingersController::INDEX_FLEX_MOTOR);
-    // fc.calibrateCenterOfRange(FingersController::MIDDLE_FLEX_MOTOR);
-    // fc.calibrateCenterOfRange(FingersController::RING_LITTLE_FLEX_MOTOR);
-    // fc.calibrateCenterOfRange(FingersController::THUMB_FLEX_MOTOR);
-    SerialBT.println("All servos center position calibrated!");
-    while (1)
-      ;
-  }
-
-  //Changing Motor ID
-  //fc.changeID(5, RING_LITTLE_FLEX_MOTOR);
 
   // Hand Calibration
   fc.calibrateHand();
@@ -104,34 +88,39 @@ int sign(int val) {
 int gMaxOverLoadCount = 40;
 int gOverLoadCounters[5];  // 0: index, ..
 
-// void limitTemp() {
-
-//   for (int i = 0; i <= 4; i++) {
-//     int id = fc.getMotorIdByVectorIndex(static_cast<FingersController::VectorIdx>(i));
-//     auto temp = fc.readTemper(id);
-//     if (temp > 65) {
-//       fc.enableTorque(id, false);
-//       g_motor_enabled[i] = false;
-//       SerialBT.printf("Motor %d OVERHEAT! => Motor disabled! \n", id);
-//     } else if (!g_motor_enabled[i] && temp < 60) {
-//       fc.enableTorque(id, true);
-//       g_motor_enabled[i] = true;
-//       SerialBT.printf("Motor %d Cooled Down => Motor enabled! \n", id);
-//     }
-//   }
-// }
-
 void processStringCmd(const String& cmd) {
   FingersController::GraspType graspType = FingersController::getGraspTypeByString(cmd);
   if (graspType < FingersController::GraspType::_MAX) {
     g_new_grasp_type = graspType;
     if (BLUETOOTH) SerialBT.println("Grasp by Serial Cmd");
   } else {  // Not a Grasp command..
-    if (cmd == "INSTALL\r\n") {
+    if (cmd.substring(0, 4) == "ROS ") {
+      int v[5];
+      int n = sscanf(cmd.c_str(), "ROS %d %d %d %d %d",
+                     &v[0], &v[1], &v[2], &v[3], &v[4]);
+      if (n != 5) {
+        // Incomplete line: log and discard 
+        if (BLUETOOTH && DEBUG) SerialBT.printf("BAD ROS CMD (tokens=%d): %s\n", n, cmd.c_str());
+      } else {
+        // range check
+        for (int i = 0; i < 5; ++i) {
+          if (v[i] < 0 || v[i] > 100) {
+            if (BLUETOOTH && DEBUG) SerialBT.printf("OUT OF RANGE ROS CMD: %s\n", cmd.c_str());
+          } else {
+            const u8 IDN = 5;
+            FingersController::VectorIdx IDXs[IDN] = { FingersController::VectorIdx::Index, FingersController::VectorIdx::Middle, FingersController::VectorIdx::Ring, FingersController::VectorIdx::Thumb, FingersController::VectorIdx::ThumbRot };
+            u8 Factor[IDN] = { v[0], v[1], v[2], v[3], v[4] };
+            u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
+            u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
+            fc.moveUntilLoadLimitHit(IDN, IDXs, Factor, Speed, Acc);
+          }
+        }
+      }
+    } else if (cmd.substring(0, 7) == "INSTALL") {
       gFsmState = FSM::TendonInstall;
     } else if (cmd == "TEST\r\n") {
       gFsmState = FSM::Testing;
-    } else if (cmd == "CONTROL\r\n") {
+    } else if (cmd.substring(0, 7) == "CONTROL") {
       gFsmState = FSM::Control;
     } else if (cmd.substring(0, 3) == "LIM") {  // Comando esempio: LIM 1 125
       auto id = cmd.substring(4, 5).toInt();
@@ -194,47 +183,42 @@ void prepareGrasp() {
   g_preparation = false;
 }
 
-// // TESTING FSM
-// enum class TestFSM {
-//   OPEN,
-//   CLOSE
-// };
-
-// TestFSM gTestFsmState = TestFSM::OPEN;
-// int gFsmTimer = millis();
-// int gTestCounter = -1;
-// void test() {
-//   switch (gTestFsmState) {
-
-//     case TestFSM::OPEN:
-//       fc.action(FingersController::GraspType::POWER, 0);
-//       delay(2000);
-//       gTestFsmState = TestFSM::CLOSE;
-//       break;
-//     case TestFSM::CLOSE:
-//       fc.action(FingersController::GraspType::POWER, 100);
-//       delay(2000);
-//       gTestFsmState = TestFSM::OPEN;
-//       gTestCounter++;
-//       break;
-//   }
-//   int tI = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Index));
-//   int tM = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Middle));
-//   int tR = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Ring));
-//   int tT = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::Thumb));
-//   int tTR = fc.readTemper(fc.getMotorIdByVectorIndex(FingersController::VectorIdx::ThumbRot));
-//   SerialBT.printf("Test cycles: %d \t Temper: I:%d \t M:%d \t R:%d \t T:%d \t TR:%d \t \n", gTestCounter, tI, tM, tR, tT, tTR);
-// }
+void sendRosFeedback() {
+  u8 factors[FingersController::SERVOS_SIZE];
+  s16 load[FingersController::SERVOS_SIZE];
+  u8 volt[FingersController::SERVOS_SIZE];
+  u8 temp[FingersController::SERVOS_SIZE];
+  s16 ampr[FingersController::SERVOS_SIZE];
+  fc.readFactors(factors);
+  fc.readFeedback(load, volt, temp, ampr);
+  SerialBT.printf("ROSPOS %d %d %d %d %d\n", factors[0], factors[1], factors[2], factors[3], factors[4]);
+  SerialBT.printf("ROSLOAD %d %d %d %d %d\n", load[0], load[1], load[2], load[3], load[4]);
+  SerialBT.printf("ROSVOLT %d %d %d %d %d\n", volt[0], volt[1], volt[2], volt[3], volt[4]);
+  SerialBT.printf("ROSTEMP %d %d %d %d %d\n", temp[0], temp[1], temp[2], temp[3], temp[4]);
+  SerialBT.printf("ROSAMPR %d %d %d %d %d\n", ampr[0], ampr[1], ampr[2], ampr[3], ampr[4]);
+}
+String readLastCmdFromSerial() {
+  String lastCmd = "";
+  while (SerialBT.available()) {
+    String cmd = SerialBT.readStringUntil('\n');
+    if (cmd.length() > 0) {
+      lastCmd = cmd;
+    }
+  }
+  return lastCmd;
+}
 
 void loop() {
   auto t0 = millis();
 
-  if (BLUETOOTH && SerialBT.available()) {
-    auto t1 = millis();
-    auto cmd = SerialBT.readString();
-    auto t2 = millis();
-    SerialBT.printf("dt1: %d ms\n", t2 - t1);
-    SerialBT.printf("string: %s \n", cmd);
+  String cmd = readLastCmdFromSerial();
+
+  if (cmd.length() > 0) {
+    if (DEBUG) {
+      if (BLUETOOTH) SerialBT.printf("string: %s \n", cmd.c_str());
+      Serial.print("string: ");
+      Serial.println(cmd.c_str());
+    }
     processStringCmd(cmd);
   }
 
@@ -279,9 +263,23 @@ void loop() {
     delay(10);
   }
 
+  static auto t_prev_ros_feedback = millis();
+  auto t_now_ros_feedback = millis();
+  if (t_now_ros_feedback - t_prev_ros_feedback > 100) {
+    sendRosFeedback();
+    t_prev_ros_feedback = t_now_ros_feedback;
+  }
+
   static auto t_safety = millis();
   if (millis() - t_safety > 1000) {
     fc.safetyFeature();
     t_safety = millis();
   }
+
+  static long t_prev_loop = micros();
+  long t_cur_loop = micros();
+  while (micros() - t_prev_loop < 100)
+    ;
+  long t_loop_delta = micros() - t_prev_loop;
+  t_prev_loop = t_cur_loop;
 }

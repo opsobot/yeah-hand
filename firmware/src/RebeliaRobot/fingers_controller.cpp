@@ -20,27 +20,27 @@ The License Notices
 using namespace std::placeholders;
 
 FingersController::GraspType FingersController::getGraspTypeByString(const String& cmd) {
-  if (cmd == "POWER\r\n") {
+  if (cmd.substring(0,5) == "POWER") {
     return FingersController::GraspType::POWER;
-  } else if (cmd == "POWERSMALL\r\n") {
+  } else if (cmd.substring(0,10) == "POWERSMALL") {
     return FingersController::GraspType::POWERSMALL;
-  } else if (cmd == "POWERTOOL\r\n") {
+  } else if (cmd.substring(0,9) == "POWERTOOL") {
     return FingersController::GraspType::POWERTOOL;
-  } else if (cmd == "MONKEY\r\n") {
+  } else if (cmd.substring(0,6) == "MONKEY") {
     return FingersController::GraspType::MONKEY;
-  } else if (cmd == "PINCH\r\n") {
+  } else if (cmd.substring(0,5) == "PINCH") {
     return FingersController::GraspType::PINCH;
-  } else if (cmd == "RELAX\r\n") {
+  } else if (cmd.substring(0,5) == "RELAX") {
     return FingersController::GraspType::RELAX;
-  } else if (cmd == "INDEX\r\n") {
+  } else if (cmd.substring(0,5) == "INDEX") {
     return FingersController::GraspType::INDEX;
-  } else if (cmd == "MIDDLE\r\n") {
+  } else if (cmd.substring(0,6) == "MIDDLE") {
     return FingersController::GraspType::MIDDLE;
-  } else if (cmd == "RING\r\n") {
+  } else if (cmd.substring(0,4) == "RING") {
     return FingersController::GraspType::RING;
-  } else if (cmd == "THUMB\r\n") {
+  } else if (cmd.substring(0,5) == "THUMB") {
     return FingersController::GraspType::THUMB;
-  } else if (cmd == "THUMB_ROT\r\n") {
+  } else if (cmd.substring(0,9) == "THUMB_ROT") {
     return FingersController::GraspType::THUMB_ROT;
   }
 
@@ -128,7 +128,7 @@ void FingersController::setCenterOfRange(int motor_id) {
 }
 
 void FingersController::setPinchOffset(int offset) {
-  if (abs(offset) > 20 ){
+  if (abs(offset) > 20) {
     SerialBT->println("Please set a value between -20 and 20\n");
     return;
   }
@@ -422,16 +422,19 @@ int FingersController::getVectorIndexByMotorID(const int motor_id) {
 //   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
 // }
 
-void FingersController::moveAllFingersToMiddlePosition() {
-  for (int id = 1; id <= 5; id++) {
-    SerialBT->printf("Moving to middle position id: ..", id);
-    moveFingerAsync(2048, id, 100, 200);
-    SerialBT->println(".. moved!");
-  }
-}
-
 int FingersController::readPos(const u8 ID) {
   return st.ReadPos(ID);
+}
+
+void FingersController::readFactors(u8 factors[5]) {
+
+  u8 IDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  s16 positions[SERVOS_SIZE];
+  readPositions(SERVOS_SIZE, IDs, positions);
+
+  for (int idx = 0; idx < SERVOS_SIZE; idx++) {
+    factors[idx] = getFactorFromPos(idx, positions[idx]);
+  }
 }
 
 bool FingersController::isMoving(const u8 ID) {
@@ -564,6 +567,62 @@ void FingersController::readPositions(u8 IDN, u8 IDs[], s16 positions[]) {
     if (st.syncReadPacketRx(IDs[i], data) == 2) {
       // Use the built-in decoder!
       positions[i] = (s16)st.syncReadRxPacketToWrod(15);  // 15 = negative bit for position
+    }
+  }
+}
+
+void FingersController::readFeedback(s16 load[5], u8 voltage[5],
+                                     u8 temperature[5], s16 current[5]) {
+  u8 IDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  
+  readFeedback(SERVOS_SIZE, IDs, load, voltage, temperature, current);
+}
+
+// Reads load, voltage, temperature, and current for all servos in a single
+// sync-read transaction. Each output array must be sized to >= IDN elements.
+//
+// Units (STS series):
+//   load        : 0.1% steps, signed (sign bit 10)
+//   voltage[]   : 0.1 V steps  (e.g. 120 = 12.0 V)
+//   temperature : °C
+//   current[]   : ~6.5 mA steps, signed (sign bit 15)
+void FingersController::readFeedback(u8 IDN, u8 IDs[],
+                                     s16 load[],
+                                     u8 voltage[],
+                                     u8 temperature[],
+                                     s16 current[]) {
+
+  // Contiguous block: PRESENT_LOAD_L (60) .. PRESENT_CURRENT_H (70) = 11 bytes.
+  const u8 startAddr = SMS_STS_PRESENT_LOAD_L;                                 // 60
+  const u8 blockLen = SMS_STS_PRESENT_CURRENT_H - SMS_STS_PRESENT_LOAD_L + 1;  // 11
+
+  st.syncReadPacketTx(IDs, IDN, startAddr, blockLen);
+
+  for (int i = 0; i < IDN; i++) {
+    u8 data[blockLen];
+    if (st.syncReadPacketRx(IDs[i], data) == blockLen) {
+
+      // Offsets relative to startAddr (60):
+      //   [0..1] load    (60,61)
+      //   [2]    voltage (62)
+      //   [3]    temp    (63)
+      //   [9..10] current (69,70)
+
+      // --- Load: little-endian, sign bit at position 10 ---
+      u16 rawLoad = (u16)(data[0] | (data[1] << 8));
+      load[i] = (rawLoad & (1 << 10)) ? -(s16)(rawLoad & 0x03FF)
+                                      : (s16)(rawLoad & 0x03FF);
+
+      // --- Voltage (1 byte) ---
+      voltage[i] = data[2];
+
+      // --- Temperature (1 byte) ---
+      temperature[i] = data[3];
+
+      // --- Current: little-endian, sign bit at position 15 ---
+      u16 rawCurrent = (u16)(data[9] | (data[10] << 8));
+      current[i] = (rawCurrent & 0x8000) ? -(s16)(rawCurrent & 0x7FFF)
+                                         : (s16)(rawCurrent & 0x7FFF);
     }
   }
 }

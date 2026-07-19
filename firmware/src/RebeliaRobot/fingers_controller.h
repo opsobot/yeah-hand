@@ -121,6 +121,12 @@ public:
   int readCurrent(const u8 ID);
   void pingTest(const u8 ID);
   int readMaxTorque(const u8 ID);
+  // ROS feedback
+  void readFactors(u8 factors[5]);
+  void readFeedback(u8 IDN, u8 IDs[], s16 load[], u8 voltage[],
+                  u8 temperature[], s16 current[]);
+  void readFeedback(s16 load[5], u8 voltage[5],
+                  u8 temperature[5], s16 current[5]);
 
   // Print
   void printFeedback(const int id);
@@ -149,6 +155,8 @@ public:
   void moveUntilLoadLimitHit(VectorIdx idx, const int factor, u16 speed, u8 acc);
   void moveUntilLoadLimitHit(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Speed[], u8 Acc[]);
   void move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]);
+
+
 
 public:
   // Motors
