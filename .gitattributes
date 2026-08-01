@@ -11,3 +11,4 @@ hardware/CAD/STL/Molds filter=lfs diff=lfs merge=lfs -text
 hardware/CAD/STL/Robotic[[:space:]]version[[:space:]]only filter=lfs diff=lfs merge=lfs -text
 hardware/CAD/STL/STL[[:space:]]Files[[:space:]]Readme.md filter=lfs diff=lfs merge=lfs -text
 hardware/CAD/Yeah[[:space:]]Hand[[:space:]]-[[:space:]]Hierarchic.blend filter=lfs diff=lfs merge=lfs -text
+*.stl filter=lfs diff=lfs merge=lfs -text
