@@ -1,2 +1,13 @@
 *.blend filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/(LS)[[:space:]]Palm.stl filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/(LS)[[:space:]]Skeleton.stl filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/(LS)[[:space:]]Thumb[[:space:]]Base.stl filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/(RS)[[:space:]]Skeleton.stl filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/Covers filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/Tools filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/(LS)[[:space:]]Thumb[[:space:]]Rot[[:space:]]Servo[[:space:]]Platform.stl filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/Fingers filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/Molds filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/Robotic[[:space:]]version[[:space:]]only filter=lfs diff=lfs merge=lfs -text
+hardware/CAD/STL/STL[[:space:]]Files[[:space:]]Readme.md filter=lfs diff=lfs merge=lfs -text
 hardware/CAD/Yeah[[:space:]]Hand[[:space:]]-[[:space:]]Hierarchic.blend filter=lfs diff=lfs merge=lfs -text
