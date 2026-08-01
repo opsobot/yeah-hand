@@ -82,6 +82,11 @@ public:
     CCW = -1
   };
 
+  enum HandSide {
+      LeftSide = 0,
+      RightSide = 1
+  };
+
 public:
   static GraspType getGraspTypeByString(const String& cmd);
   static String getGraspStringByType(FingersController::GraspType type);
@@ -156,8 +161,6 @@ public:
   void moveUntilLoadLimitHit(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Speed[], u8 Acc[]);
   void move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]);
 
-
-
 public:
   // Motors
   static const u8 INDEX_ID = 1;
@@ -172,7 +175,8 @@ public:
   const int RANGE_MIN = 0;
   const int RANGE_MAX = 1;
   int MOTORS_POS_RANGE[5][2] = { { 2048, 2048 }, { 2048, 2048 }, { 2048, 2048 }, { 2048, 2048 }, { 2048, 2048 } };
-  int MOTORS_POS_TENDON_INSTALLATION[4] = { 512, 512, 512, 512 };  //3583
+  int LS_MOTORS_POS_TENDON_INSTALLATION[4] = { 512, 512, 512, 512 };  
+  int RS_MOTORS_POS_TENDON_INSTALLATION[4] = { 3583, 3583, 3583, 3583 };
 
   // Positions
   // Factor convention: 0:Open 100:Closed
@@ -220,6 +224,11 @@ public:
   void safetyFeature();
 
 private:
-  SMS_STS st;
+  SMS_STS st; 
   BluetoothSerial* SerialBT;
+
+private:
+  // ** !! SET THE HAND SIDE BEFORE PROGRAMMING !! **
+  const HandSide hand_side = HandSide::LeftSide; 
+
 };
