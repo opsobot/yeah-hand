@@ -719,6 +719,18 @@ void FingersController::moveUntilLoadLimitHit(VectorIdx idx, const int factor, u
   moveUntilLoadLimitHit(getMotorIdByVectorIndex(idx), pos, speed, acc);
 }
 
+void FingersController::move(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Speed[], u8 Acc[]) {
+
+  u8 IDs[IDN];
+  s16 Pos[IDN];
+  for (u8 i = 0; i < IDN; i++) {
+    IDs[i] = getMotorIdByVectorIndex(IDXs[i]);
+    Pos[i] = getPosFromFactor(IDXs[i], Factor[i]);
+  }
+
+  move(IDN, IDs, Pos, Speed, Acc);
+}
+
 void FingersController::move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
 }
@@ -728,7 +740,7 @@ void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 S
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
   delay(100);
   unsigned long t1 = millis();
-  const unsigned long TIMEOUT_MS = 3000;  // 3 second timeout
+  const unsigned long TIMEOUT_MS = 6000;  // 6 second timeout
   while (!stalled(IDN, IDs)) {
     delay(10);
     yield();

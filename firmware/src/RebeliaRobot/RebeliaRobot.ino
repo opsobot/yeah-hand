@@ -89,6 +89,12 @@ int gMaxOverLoadCount = 40;
 int gOverLoadCounters[5];  // 0: index, ..
 
 void processStringCmd(const String& cmd) {
+  if (DEBUG) {
+    if (BLUETOOTH) SerialBT.printf("string: %s \n", cmd.c_str());
+    Serial.print("string: ");
+    Serial.println(cmd.c_str());
+  }
+
   FingersController::GraspType graspType = FingersController::getGraspTypeByString(cmd);
   if (graspType < FingersController::GraspType::_MAX) {
     g_new_grasp_type = graspType;
@@ -99,7 +105,7 @@ void processStringCmd(const String& cmd) {
       int n = sscanf(cmd.c_str(), "ROS %d %d %d %d %d",
                      &v[0], &v[1], &v[2], &v[3], &v[4]);
       if (n != 5) {
-        // Incomplete line: log and discard 
+        // Incomplete line: log and discard
         if (BLUETOOTH && DEBUG) SerialBT.printf("BAD ROS CMD (tokens=%d): %s\n", n, cmd.c_str());
       } else {
         // range check
@@ -112,7 +118,8 @@ void processStringCmd(const String& cmd) {
             u8 Factor[IDN] = { v[0], v[1], v[2], v[3], v[4] };
             u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
             u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
-            fc.moveUntilLoadLimitHit(IDN, IDXs, Factor, Speed, Acc);
+            fc.moveUntilLoadLimitHit(IDN, IDXs, Factor, Speed, Acc); // sync
+            //fc.move(IDN, IDXs, Factor, Speed, Acc); // async
           }
         }
       }
@@ -197,30 +204,27 @@ void sendRosFeedback() {
   SerialBT.printf("ROSTEMP %d %d %d %d %d\n", temp[0], temp[1], temp[2], temp[3], temp[4]);
   SerialBT.printf("ROSAMPR %d %d %d %d %d\n", ampr[0], ampr[1], ampr[2], ampr[3], ampr[4]);
 }
-String readLastCmdFromSerial() {
-  String lastCmd = "";
+
+void smartReadSerialBT() {
+  String lastPosCmd = "";
   while (SerialBT.available()) {
     String cmd = SerialBT.readStringUntil('\n');
-    if (cmd.length() > 0) {
-      lastCmd = cmd;
+    if (cmd.length() == 0) continue;
+    if (cmd.substring(0, 4) == "ROS ") {
+      lastPosCmd = cmd;
+    } else {
+      processStringCmd(cmd);
     }
   }
-  return lastCmd;
+  if (lastPosCmd.length() > 0) {
+    processStringCmd(lastPosCmd);
+  }
 }
 
 void loop() {
   auto t0 = millis();
 
-  String cmd = readLastCmdFromSerial();
-
-  if (cmd.length() > 0) {
-    if (DEBUG) {
-      if (BLUETOOTH) SerialBT.printf("string: %s \n", cmd.c_str());
-      Serial.print("string: ");
-      Serial.println(cmd.c_str());
-    }
-    processStringCmd(cmd);
-  }
+  smartReadSerialBT();
 
   if (gFsmState == FSM::Control) {
     if (g_new_grasp_type != g_grasp_type) {

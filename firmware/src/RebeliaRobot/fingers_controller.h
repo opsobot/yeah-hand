@@ -160,6 +160,8 @@ public:
   void moveUntilLoadLimitHit(VectorIdx idx, const int factor, u16 speed, u8 acc);
   void moveUntilLoadLimitHit(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Speed[], u8 Acc[]);
   void move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]);
+  void move(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Speed[], u8 Acc[]);
+
 
 public:
   // Motors
