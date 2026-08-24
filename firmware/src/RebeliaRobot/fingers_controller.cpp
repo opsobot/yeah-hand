@@ -157,7 +157,8 @@ void FingersController::calibrateHand() {
   s16 LS_START_POS_FOR_CLOSING[IDN] = { 2500, 2500, 2500, 1200, 2048 };
   s16 LS_END_POS_FOR_OPENING[IDN] = { 50, 50, 50, 50, 50 };
   s16 LS_END_POS_FOR_CLOSING[IDN] = { 4045, 4045, 4045, 4045, 4045 };
-  s16 LS_THUMB_FLEXION_START_POS = 0;
+  s16 LS_THUMB_FLEXION_START_POS = 50;
+  s16 LS_THUMB_ROTATION_START_POS = 50;
   s16 LS_THUMB_ROTATION_END_POS = 4045;
   s16 LS_FLEXION_INCREMENT = 270;
   s16 LS_THUMB_ROT_INCREMENT = 100;
@@ -167,7 +168,8 @@ void FingersController::calibrateHand() {
   s16 RS_START_POS_FOR_CLOSING[IDN] = { 1500, 1500, 1500, 2800, 2048 };
   s16 RS_END_POS_FOR_OPENING[IDN] = { 4045, 4045, 4045, 4045, 4045 };
   s16 RS_END_POS_FOR_CLOSING[IDN] = { 50, 50, 50, 50, 50 };
-  s16 RS_THUMB_FLEXION_START_POS = 4095;
+  s16 RS_THUMB_FLEXION_START_POS = 4045;
+  s16 RS_THUMB_ROTATION_START_POS = 4045;
   s16 RS_THUMB_ROTATION_END_POS = 50;
   s16 RS_FLEXION_INCREMENT = -270;
   s16 RS_THUMB_ROT_INCREMENT = -100;
@@ -178,6 +180,7 @@ void FingersController::calibrateHand() {
   s16 END_POS_FOR_OPENING[IDN];
   s16 END_POS_FOR_CLOSING[IDN];
   int THUMB_FLEXION_START_POS;
+  int THUMB_ROTATION_START_POS;
   int THUMB_ROTATION_END_POS;
   int FLEXION_INCREMENT;
   int THUMB_ROT_INCREMENT;
@@ -220,7 +223,7 @@ void FingersController::calibrateHand() {
   moveUntilLoadLimitHit(IDN, IDs, START_POS_FOR_OPENING, Speed, Acc);
 
   // Open flexion calibration
-  setMaxTorque(IDN, IDs, (u16[]){ 75, 75, 75, 75, 200 });
+  setMaxTorque(IDN, IDs, (u16[]){ 75, 75, 75, 150, 200 });
   moveUntilLoadLimitHit(IDN, IDs, END_POS_FOR_OPENING, Speed, Acc);
   // Move Index , Middle and Ring+Little flexion slightly back..
   moveUntilLoadLimitHit(INDEX_ID, readPos(INDEX_ID) + FLEXION_INCREMENT, 4000, 250);
@@ -240,20 +243,26 @@ void FingersController::calibrateHand() {
   moveUntilLoadLimitHit(IDN_Flex, IDs, END_POS_FOR_CLOSING, Speed, Acc);
   setRangeByCurrentPos(IDN_Flex, IDXs, RANGE_MAX);
 
-  // Thumb Rotation Calibration
+  // Thumb Rotation Calibration..
+  // Firstly open the thumb flexion
   setMaxTorque(THUMB_ID, 300);
-  moveUntilLoadLimitHit(VectorIdx::Thumb, THUMB_FLEXION_START_POS, 4000, 250);
+  moveUntilLoadLimitHit(VectorIdx::Thumb, THUMB_FLEXION_START_POS, 4000, 250);  
+  // Calibrate Closed rotation
   setMaxTorque(THUMB_R_ID, 300);
   moveUntilLoadLimitHit(THUMB_R_ID, THUMB_ROTATION_END_POS, 4000, 250);
   moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) - THUMB_ROT_INCREMENT, 4000, 250);  // move slightly back
   setRangeByCurrentPos(VectorIdx::ThumbRot, RANGE_MAX);
+  // Calibrate Open rotation
+  moveUntilLoadLimitHit(THUMB_R_ID, THUMB_ROTATION_START_POS, 4000, 250);
+  moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) + THUMB_ROT_INCREMENT, 4000, 250);  // move slightly back
+  setRangeByCurrentPos(VectorIdx::ThumbRot, RANGE_MIN);
 
   // Hand is Calibrated.
-
+ 
   // Open all
   setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 200, 200 });
-  moveUntilLoadLimitHit(IDN, IDXs, (u8[]){ getPosFromFactor(VectorIdx::Index, 0), getPosFromFactor(VectorIdx::Middle, 0), getPosFromFactor(VectorIdx::Ring, 0), getPosFromFactor(VectorIdx::Thumb, 0), getPosFromFactor(VectorIdx::ThumbRot, 0) }, Speed, Acc);
-
+  moveUntilLoadLimitHit(IDN, IDXs, (u8[]){ 0,0,0,0,0 }, Speed, Acc);
+ 
   auto degreeRange = [](int min, int max) {
     return (int)(((double)abs(max - min) / 4096.0) * 360.0);
   };
