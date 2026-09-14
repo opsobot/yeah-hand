@@ -22,8 +22,8 @@ using namespace std::placeholders;
 FingersController::GraspType FingersController::getGraspTypeByString(const String& cmd) {
   if (cmd.substring(0, 5) == "POWER") {
     return FingersController::GraspType::POWER;
-  } else if (cmd.substring(0, 9) == "POWERTOOL") {
-    return FingersController::GraspType::POWERTOOL;
+  } else if (cmd.substring(0, 10) == "POWERSMALL") {
+    return FingersController::GraspType::POWERSMALL;
   } else if (cmd.substring(0, 6) == "MONKEY") {
     return FingersController::GraspType::MONKEY;
   } else if (cmd.substring(0, 5) == "PINCH") {
@@ -41,8 +41,8 @@ String FingersController::getGraspStringByType(FingersController::GraspType type
     case FingersController::GraspType::POWER:
       text = "POWER\r\n";
       break;
-    case FingersController::GraspType::POWERTOOL:
-      text = "POWERTOOL\r\n";
+    case FingersController::GraspType::POWERSMALL:
+      text = "POWERSMALL\r\n";
       break;
     case FingersController::GraspType::MONKEY:
       text = "MONKEY\r\n";
@@ -293,6 +293,8 @@ int FingersController::getTrajectorySize(GraspType grasp_type) {
   switch (grasp_type) {
     case POWER:
       return POWER_FRAMES;
+    case POWERSMALL:
+      return POWERSMALL_FRAMES;
     case MONKEY:
       return MONKEY_FRAMES;
     case PINCH:
@@ -312,6 +314,10 @@ void FingersController::getDataFromTrajectory(GraspType graspType, int frame, in
       matrix = POWER_MATRIX;
       frameCount = POWER_FRAMES;
       break;
+    case POWERSMALL:
+      matrix = POWERSMALL_MATRIX;
+      frameCount = POWERSMALL_FRAMES;
+      break;
     case MONKEY:
       matrix = MONKEY_MATRIX;
       frameCount = MONKEY_FRAMES;
@@ -319,19 +325,7 @@ void FingersController::getDataFromTrajectory(GraspType graspType, int frame, in
     case PINCH:
       matrix = PINCH_MATRIX;
       frameCount = PINCH_FRAMES;
-      break;
-    // case RELAX:
-    //     matrix = RELAX_MATRIX;
-    //     frameCount = RELAX_FRAMES;
-    //     break;
-    // case POWERSMALL:
-    //     matrix = POWERSMALL_MATRIX;
-    //     frameCount = POWERSMALL_FRAMES;
-    //     break;
-    // case POWERTOOL:
-    //     matrix = POWERTOOL_MATRIX;
-    //     frameCount = POWERTOOL_FRAMES;
-    //     break;
+      break;    
     default:
       // Error: unknown grasp type
       for (int i = 0; i < ANY_MATRIX_COLS; i++) data[i] = -1;

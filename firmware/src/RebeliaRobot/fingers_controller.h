@@ -63,7 +63,7 @@ public:
 
   enum GraspType {
     POWER = 0,
-    POWERTOOL,
+    POWERSMALL,
     MONKEY,
     PINCH,
     _MAX
@@ -196,6 +196,13 @@ public:
     { 100, 100, 100, 100, 90, 100 }
   };
 
+  int POWERSMALL_FRAMES = 3;
+  int POWERSMALL_MATRIX[3][ANY_MATRIX_COLS] = {
+    { 0, 0, 0, 0, 90, 0 },
+    { 0, 0, 0, 60, 90, 30 },
+    { 100, 100, 100, 100, 90, 100 }
+  };
+
   int MONKEY_FRAMES = 7;
   int MONKEY_MATRIX[4][ANY_MATRIX_COLS] = {
     { 0, 0, 0, 0, 0, 0 },
@@ -237,5 +244,5 @@ private:
 
 private:
   // ** !! SET THE HAND SIDE BEFORE PROGRAMMING !! **
-  const HandSide hand_side = HandSide::RightSide;
+  const HandSide hand_side = HandSide::LeftSide;
 };
