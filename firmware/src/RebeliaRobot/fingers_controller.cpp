@@ -1,0 +1,793 @@
+
+/*
+Rebelia-Hand-Firmware is the control software for the Rebelia Hand, an Active Prosthetic Hand device (see https://www.robotgarage.org).
+
+The Copyright Notice
+Copyright (C)  2023 Vittorio Lumare
+
+The License Notices
+    This file is part of Rebelia-Hand-Firmware.
+
+    Rebelia-Hand-Firmware is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+    Rebelia-Hand-Firmware is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along with Rebelia-Hand-Firmware. If not, see <https://www.gnu.org/licenses/>. 
+*/
+
+#include "fingers_controller.h"
+
+using namespace std::placeholders;
+
+FingersController::GraspType FingersController::getGraspTypeByString(const String& cmd) {
+  if (cmd.substring(0, 5) == "POWER") {
+    return FingersController::GraspType::POWER;
+  } else if (cmd.substring(0, 9) == "POWERTOOL") {
+    return FingersController::GraspType::POWERTOOL;
+  } else if (cmd.substring(0, 6) == "MONKEY") {
+    return FingersController::GraspType::MONKEY;
+  } else if (cmd.substring(0, 5) == "PINCH") {
+    return FingersController::GraspType::PINCH;
+  }
+
+  return FingersController::GraspType::_MAX;
+}
+
+String FingersController::getGraspStringByType(FingersController::GraspType type) {
+
+  String text;
+
+  switch (type) {
+    case FingersController::GraspType::POWER:
+      text = "POWER\r\n";
+      break;
+    case FingersController::GraspType::POWERTOOL:
+      text = "POWERTOOL\r\n";
+      break;
+    case FingersController::GraspType::MONKEY:
+      text = "MONKEY\r\n";
+      break;
+    case FingersController::GraspType::PINCH:
+      text = "PINCH\r\n";
+      break;
+    case FingersController::GraspType::_MAX:
+      text = "INVALID_COMMAND\r\n";
+      break;
+  }
+
+  return text;
+}
+
+void FingersController::enableTorque(u8 ID, bool enable) {
+  st.EnableTorque(ID, enable);
+}
+
+FingersController::FingersController(BluetoothSerial* _serialBT)
+  : SerialBT(_serialBT) {
+  Serial1.begin(1000000, SERIAL_8N1, S_RXD, S_TXD);
+  st.pSerial = &Serial1;
+  while (!Serial1) {
+    SerialBT->println("ST3215 serial Not ready");
+    delay(100);
+  }
+  SerialBT->println("ST3215 serial Ready!");
+}
+
+FingersController::~FingersController() {
+}
+
+void FingersController::tendonInstallation() {
+  for (int IDX = VectorIdx::Index; IDX <= VectorIdx::Thumb; IDX++) {
+    int ID = getMotorIdByVectorIndex((VectorIdx)IDX);
+    switch (hand_side) {
+      case HandSide::LeftSide:
+        moveUntilLoadLimitHit(ID, LS_MOTORS_POS_TENDON_INSTALLATION[IDX], 2000, 50);
+        break;
+      case HandSide::RightSide:
+        moveUntilLoadLimitHit(ID, RS_MOTORS_POS_TENDON_INSTALLATION[IDX], 2000, 50);
+        break;
+    }
+  }
+}
+
+void FingersController::setCenterOfRange(int motor_id) {
+  int result = st.CalibrationOfs(motor_id);
+  if (result == 0) {
+    SerialBT->println("Successfully calibrated center of range! ");
+  } else {
+    SerialBT->printf("Failed center of range calibration! Error: %d\n", result);
+  }
+}
+
+void FingersController::setPinchOffset(int offset) {
+  if (abs(offset) > 40) {
+    SerialBT->println("Please set a value between -40 and 40\n");
+    return;
+  }
+  for (int i = 0; i < PINCH_FRAMES; i++) {
+    PINCH_MATRIX[i][VectorIdx::Thumb] = PINCH_GRASP_THUMB_FLEXION + offset;
+  }
+  SerialBT->printf("Pinch grasp offset: %d\n", offset);
+}
+
+void FingersController::calibrateHand() {
+
+  u8 IDN = 5;
+  u8 IDN_Flex = 4;
+  VectorIdx IDXs[IDN] = { VectorIdx::Index, VectorIdx::Middle, VectorIdx::Ring, VectorIdx::Thumb, VectorIdx::ThumbRot };
+  u8 IDs[IDN] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+
+  // LeftSide
+  s16 LS_START_POS_FOR_OPENING[IDN] = { 1000, 1000, 1000, 1200, 2048 };
+  s16 LS_START_POS_FOR_CLOSING[IDN] = { 2500, 2500, 2500, 1200, 2048 };
+  s16 LS_END_POS_FOR_OPENING[IDN] = { 50, 50, 50, 50, 50 };
+  s16 LS_END_POS_FOR_CLOSING[IDN] = { 4045, 4045, 4045, 4045, 4045 };
+  s16 LS_THUMB_FLEXION_START_POS = 50;
+  s16 LS_THUMB_ROTATION_START_POS = 50;
+  s16 LS_THUMB_ROTATION_END_POS = 4045;
+  s16 LS_FLEXION_INCREMENT = 270;
+  s16 LS_THUMB_ROT_INCREMENT = 100;
+
+  // RightSide
+  s16 RS_START_POS_FOR_OPENING[IDN] = { 3000, 3000, 3000, 2800, 2048 };
+  s16 RS_START_POS_FOR_CLOSING[IDN] = { 1500, 1500, 1500, 2800, 2048 };
+  s16 RS_END_POS_FOR_OPENING[IDN] = { 4045, 4045, 4045, 4045, 4045 };
+  s16 RS_END_POS_FOR_CLOSING[IDN] = { 50, 50, 50, 50, 50 };
+  s16 RS_THUMB_FLEXION_START_POS = 4045;
+  s16 RS_THUMB_ROTATION_START_POS = 4045;
+  s16 RS_THUMB_ROTATION_END_POS = 50;
+  s16 RS_FLEXION_INCREMENT = -270;
+  s16 RS_THUMB_ROT_INCREMENT = -100;
+
+  // Assign values by Hand Side
+  s16 START_POS_FOR_OPENING[IDN];
+  s16 START_POS_FOR_CLOSING[IDN];
+  s16 END_POS_FOR_OPENING[IDN];
+  s16 END_POS_FOR_CLOSING[IDN];
+  int THUMB_FLEXION_START_POS;
+  int THUMB_ROTATION_START_POS;
+  int THUMB_ROTATION_END_POS;
+  int FLEXION_INCREMENT;
+  int THUMB_ROT_INCREMENT;
+  switch (hand_side) {
+    case HandSide::LeftSide:
+      {
+        for (int idx = 0; idx < IDN; idx++) {
+          START_POS_FOR_OPENING[idx] = LS_START_POS_FOR_OPENING[idx];
+          START_POS_FOR_CLOSING[idx] = LS_START_POS_FOR_CLOSING[idx];
+          END_POS_FOR_OPENING[idx] = LS_END_POS_FOR_OPENING[idx];
+          END_POS_FOR_CLOSING[idx] = LS_END_POS_FOR_CLOSING[idx];
+        }
+        THUMB_FLEXION_START_POS = LS_THUMB_FLEXION_START_POS;
+        THUMB_ROTATION_START_POS = LS_THUMB_ROTATION_START_POS;
+        THUMB_ROTATION_END_POS = LS_THUMB_ROTATION_END_POS;
+        FLEXION_INCREMENT = LS_FLEXION_INCREMENT;
+        THUMB_ROT_INCREMENT = LS_THUMB_ROT_INCREMENT;
+        break;
+      }
+    case HandSide::RightSide:
+      {
+        for (int idx = 0; idx < IDN; idx++) {
+          START_POS_FOR_OPENING[idx] = RS_START_POS_FOR_OPENING[idx];
+          START_POS_FOR_CLOSING[idx] = RS_START_POS_FOR_CLOSING[idx];
+          END_POS_FOR_OPENING[idx] = RS_END_POS_FOR_OPENING[idx];
+          END_POS_FOR_CLOSING[idx] = RS_END_POS_FOR_CLOSING[idx];
+        }
+        THUMB_FLEXION_START_POS = RS_THUMB_FLEXION_START_POS;
+        THUMB_ROTATION_START_POS = RS_THUMB_ROTATION_START_POS;
+        THUMB_ROTATION_END_POS = RS_THUMB_ROTATION_END_POS;
+        FLEXION_INCREMENT = RS_FLEXION_INCREMENT;
+        THUMB_ROT_INCREMENT = RS_THUMB_ROT_INCREMENT;
+        break;
+      }
+  }
+
+  u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
+  u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
+ 
+  //waitKeyPress("Pre-position fingers for opening");
+  // Pre-position fingers for opening
+  setMaxTorque(IDN, IDs, (u16[]){ 250, 250, 250, 250, 250 });
+  moveUntilLoadLimitHit(IDN, IDs, START_POS_FOR_OPENING, Speed, Acc);
+
+  //waitKeyPress("Open flexion calibration");
+  // Open flexion calibration
+  setMaxTorque(IDN, IDs, (u16[]){ 75, 75, 75, 150, 200 });
+  moveUntilLoadLimitHit(IDN, IDs, END_POS_FOR_OPENING, Speed, Acc);
+ 
+  //waitKeyPress("Move Index , Middle and Ring+Little flexion slightly back..");
+  // Move Index , Middle and Ring+Little flexion slightly back..
+  moveUntilLoadLimitHit(INDEX_ID, readPos(INDEX_ID) + FLEXION_INCREMENT, 4000, 250);
+  moveUntilLoadLimitHit(MIDDLE_ID, readPos(MIDDLE_ID) + FLEXION_INCREMENT, 4000, 250);
+  moveUntilLoadLimitHit(RING_ID, readPos(RING_ID) + FLEXION_INCREMENT, 4000, 250);
+  
+  //waitKeyPress("Move Thumb Rotation slightly back");
+  // Move Thumb Rotation slightly back
+  moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) + THUMB_ROT_INCREMENT, 4000, 250);
+  // Store the min range positions (open flexion)
+  setRangeByCurrentPos(IDN, IDXs, RANGE_MIN);
+  
+  //waitKeyPress("Pre-position fingers for closing");
+  // Pre-position fingers for closing
+  setMaxTorque(IDN_Flex, IDs, (u16[]){ 200, 200, 200, 200 });
+  moveUntilLoadLimitHit(IDN_Flex, IDs, START_POS_FOR_CLOSING, Speed, Acc);
+ 
+  //waitKeyPress("Closed flexion calibration");
+  // Closed flexion calibration
+  setMaxTorque(IDN_Flex, IDs, (u16[]){ 300, 300, 300, 500 });
+  moveUntilLoadLimitHit(IDN_Flex, IDs, END_POS_FOR_CLOSING, Speed, Acc);
+  setRangeByCurrentPos(IDN_Flex, IDXs, RANGE_MAX);
+   
+  // Thumb Rotation Calibration..
+  //waitKeyPress("Firstly open the thumb flexion");
+  // Firstly open the thumb flexion
+  setMaxTorque(THUMB_ID, 500);
+  moveUntilLoadLimitHit(VectorIdx::Thumb, 0, 4000, 250);
+  
+  //waitKeyPress("Calibrate Closed rotation");
+  // Calibrate Closed rotation
+  setMaxTorque(THUMB_R_ID, 400);
+  moveUntilLoadLimitHit(THUMB_R_ID, THUMB_ROTATION_END_POS, 4000, 250);
+  moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) - THUMB_ROT_INCREMENT, 4000, 250);  // move slightly back
+  setRangeByCurrentPos(VectorIdx::ThumbRot, RANGE_MAX);
+ 
+  //waitKeyPress("Calibrate Open rotation");
+  // Calibrate Open rotation
+  moveUntilLoadLimitHit(THUMB_R_ID, THUMB_ROTATION_START_POS, 4000, 250);
+  moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) + THUMB_ROT_INCREMENT, 4000, 250);  // move slightly back
+  setRangeByCurrentPos(VectorIdx::ThumbRot, RANGE_MIN);
+ 
+  //waitKeyPress("Hand is Calibrated.");
+  // Hand is Calibrated.
+
+  //waitKeyPress("Open all");
+  // Open all
+  setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 200, 200 });
+  moveUntilLoadLimitHit(IDN, IDXs, (u8[]){ 0, 0, 0, 0, 0 }, Speed, Acc);
+
+  auto degreeRange = [](int min, int max) {
+    return (int)(((double)abs(max - min) / 4096.0) * 360.0);
+  };
+
+  // Set final torque
+  setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 500, 200 });
+
+  // Show information
+  SerialBT->println("All servos calibrated!");
+  auto iMin = getPosFromFactor(VectorIdx::Index, 0);
+  auto iMax = getPosFromFactor(VectorIdx::Index, 100);
+  auto iDeg = degreeRange(iMin, iMax);
+  auto mMin = getPosFromFactor(VectorIdx::Middle, 0);
+  auto mMax = getPosFromFactor(VectorIdx::Middle, 100);
+  auto mDeg = degreeRange(mMin, mMax);
+  auto rMin = getPosFromFactor(VectorIdx::Ring, 0);
+  auto rMax = getPosFromFactor(VectorIdx::Ring, 100);
+  auto rDeg = degreeRange(rMin, rMax);
+  auto tMin = getPosFromFactor(VectorIdx::Thumb, 0);
+  auto tMax = getPosFromFactor(VectorIdx::Thumb, 100);
+  auto tDeg = degreeRange(tMin, tMax);
+  auto trMin = getPosFromFactor(VectorIdx::ThumbRot, 0);
+  auto trMax = getPosFromFactor(VectorIdx::ThumbRot, 100);
+  auto trDeg = degreeRange(trMin, trMax);
+
+  SerialBT->printf("I(%d,%d)[%d deg]\n", iMin, iMax, iDeg);
+  SerialBT->printf("M(%d,%d)[%d deg]\n", mMin, mMax, mDeg);
+  SerialBT->printf("R(%d,%d)[%d deg]\n", rMin, rMax, rDeg);
+  SerialBT->printf("T(%d,%d)[%d deg]\n", tMin, tMax, tDeg);
+  SerialBT->printf("TR (%d,%d)[%d deg]\n", trMin, trMax, trDeg);
+}
+
+int FingersController::getPosFromFactor(int finger_idx, int factor) {
+  int absolute_pos_value = map(factor, 0, 100, MOTORS_POS_RANGE[finger_idx][RANGE_MIN], MOTORS_POS_RANGE[finger_idx][RANGE_MAX]);
+  absolute_pos_value = limit(absolute_pos_value, MOTORS_POS_RANGE[finger_idx][RANGE_MIN], MOTORS_POS_RANGE[finger_idx][RANGE_MAX]);
+  return absolute_pos_value;
+}
+
+int FingersController::getFactorFromPos(int finger_idx, s16 pos) {
+  int factor = map(pos, MOTORS_POS_RANGE[finger_idx][RANGE_MIN], MOTORS_POS_RANGE[finger_idx][RANGE_MAX], 0, 100);
+  return limit(factor, 0, 100);
+}
+
+int FingersController::getTrajectorySize(GraspType grasp_type) {
+
+  switch (grasp_type) {
+    case POWER:
+      return POWER_FRAMES;
+    case MONKEY:
+      return MONKEY_FRAMES;
+    case PINCH:
+      return PINCH_FRAMES;
+  }
+  return -1;  //grasp_type not found
+}
+
+void FingersController::getDataFromTrajectory(GraspType graspType, int frame, int data[6]) {
+
+  // Get the correct matrix based on grasp_type
+  const int(*matrix)[ANY_MATRIX_COLS] = nullptr;  // Pointer to 2D array with 6 columns
+  int frameCount = 0;
+
+  switch (graspType) {
+    case POWER:
+      matrix = POWER_MATRIX;
+      frameCount = POWER_FRAMES;
+      break;
+    case MONKEY:
+      matrix = MONKEY_MATRIX;
+      frameCount = MONKEY_FRAMES;
+      break;
+    case PINCH:
+      matrix = PINCH_MATRIX;
+      frameCount = PINCH_FRAMES;
+      break;
+    // case RELAX:
+    //     matrix = RELAX_MATRIX;
+    //     frameCount = RELAX_FRAMES;
+    //     break;
+    // case POWERSMALL:
+    //     matrix = POWERSMALL_MATRIX;
+    //     frameCount = POWERSMALL_FRAMES;
+    //     break;
+    // case POWERTOOL:
+    //     matrix = POWERTOOL_MATRIX;
+    //     frameCount = POWERTOOL_FRAMES;
+    //     break;
+    default:
+      // Error: unknown grasp type
+      for (int i = 0; i < ANY_MATRIX_COLS; i++) data[i] = -1;
+      return;
+  }
+
+  // Check frame bounds
+  if (frame < 0 || frame >= frameCount) {
+    // Error: frame out of range
+    for (int i = 0; i < ANY_MATRIX_COLS; i++) data[i] = -1;
+    return;
+  }
+
+  // Copy the data (all 6 finger values for this frame)
+  for (int col = 0; col < ANY_MATRIX_COLS; col++) {
+    data[col] = matrix[frame][col];
+  }
+}
+
+void FingersController::prepareGrasp(GraspType graspType) {
+
+  SerialBT->println("Preparing Grasp");
+  u8 IDN = 5;
+  u8 IDs[IDN] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  s16 Pos[IDN];
+  u16 Speed[IDN] = { 2000, 2000, 2000, 2000, 2000 };
+  u8 Acc[IDN] = { 200, 200, 200, 200, 200 };
+
+  int data[ANY_MATRIX_COLS];
+  getDataFromTrajectory(graspType, 0, data);
+  for (int idx = 0; idx <= VectorIdx::ThumbRot; idx++) {
+    Pos[idx] = getPosFromFactor(idx, data[idx]);
+  }
+
+  moveUntilLoadLimitHit(IDN, IDs, Pos, Speed, Acc);
+  delay(10);
+
+  SerialBT->println("Grasp Prepared");
+}
+
+void FingersController::grasp(const GraspType graspType, const int graspFactor) {
+
+  u8 IDN = 5;
+  u8 IDs[IDN] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  s16 Pos[IDN];
+  u16 Speed[IDN] = { 2000, 2000, 2000, 2000, 2000 };
+  u8 Acc[IDN] = { 200, 200, 200, 200, 200 };
+
+  bool positionSet = false;
+  for (size_t frame = 0; frame < getTrajectorySize(graspType) - 1; frame++) {
+    int currFrame[ANY_MATRIX_COLS];
+    int nextFrame[ANY_MATRIX_COLS];
+    getDataFromTrajectory(graspType, frame, currFrame);
+    getDataFromTrajectory(graspType, frame + 1, nextFrame);
+    int currGraspFactor = currFrame[VectorIdx::Factor];
+    int nextGraspFactor = nextFrame[VectorIdx::Factor];
+    if (graspFactor >= currGraspFactor && graspFactor <= nextGraspFactor) {
+      for (int col = VectorIdx::Index; col <= VectorIdx::ThumbRot; col++) {  // iterate fingers
+        int currPos = getPosFromFactor(col, currFrame[col]);
+        int nextPos = getPosFromFactor(col, nextFrame[col]);
+        Pos[col] = map(graspFactor, currGraspFactor, nextGraspFactor, currPos, nextPos);
+        Pos[col] = limit(Pos[col], currPos, nextPos);
+      }
+      positionSet = true;
+      break;
+    }
+  }
+
+  if (positionSet) {
+    // moveUntilLoadLimitHit(IDN, IDs, Pos, Speed, Acc);
+    move(IDN, IDs, Pos, Speed, Acc);
+  }
+}
+
+int FingersController::getMotorIdByVectorIndex(const VectorIdx idx) {
+  return idx + 1;
+}
+
+int FingersController::getVectorIndexByMotorID(const int motor_id) {
+  if (motor_id > 0) {
+    return motor_id - 1;
+  } else
+    return -1;  // not valid
+}
+
+
+// void FingersController::moveFingerAsync(const int factor, VectorIdx idx, u16 speed, u8 acc) {
+//   s16 pos = map(factor, 0, 100, MOTORS_POS_RANGE[idx][RANGE_MIN], MOTORS_POS_RANGE[idx][RANGE_MAX]);
+//   pos = limit(pos, MOTORS_POS_RANGE[idx][RANGE_MIN], MOTORS_POS_RANGE[idx][RANGE_MAX]);
+//   moveFingerAsync(pos, getMotorIdByVectorIndex(idx), speed, acc);
+// }
+
+// void FingersController::moveFingerAsync(const s16 pos, const u8 ID, const u16 speed, const u8 acc) {
+//   u8 IDN = 1;
+//   u8 IDs[IDN] = { ID };
+//   u16 Speed[IDN] = { speed };
+//   u8 Acc[IDN] = { acc };
+//   s16 Pos[IDN] = { pos };
+//   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
+// }
+
+int FingersController::readPos(const u8 ID) {
+  return st.ReadPos(ID);
+}
+
+void FingersController::readFactors(u8 factors[5]) {
+
+  u8 IDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  s16 positions[SERVOS_SIZE];
+  readPositions(SERVOS_SIZE, IDs, positions);
+
+  for (int idx = 0; idx < SERVOS_SIZE; idx++) {
+    factors[idx] = getFactorFromPos(idx, positions[idx]);
+  }
+}
+
+bool FingersController::isMoving(const u8 ID) {
+  bool moving = st.ReadMove(ID) == 1 ? true : false;
+  return moving;
+}
+
+void FingersController::printLoad() {
+  SerialBT->print("LOAD : TR: ");
+  SerialBT->print(st.ReadLoad(THUMB_R_ID));
+  SerialBT->print("  TF: ");
+  SerialBT->print(st.ReadLoad(THUMB_ID));
+  SerialBT->print("  IF: ");
+  SerialBT->print(st.ReadLoad(INDEX_ID));
+  SerialBT->print("  MF: ");
+  SerialBT->print(st.ReadLoad(MIDDLE_ID));
+  SerialBT->print("  RLF: ");
+  SerialBT->println(st.ReadLoad(RING_ID));
+}
+
+int FingersController::readLoad(const u8 ID) {
+  return st.ReadLoad(ID);
+}
+
+int FingersController::readCurrent(const u8 ID) {
+  return st.ReadCurrent(ID);
+}
+
+void FingersController::action(const FingersController::GraspType grasp_type, const int factor) {
+  grasp(grasp_type, factor);
+}
+
+void FingersController::pingTest(const u8 ID) {
+  int res = st.Ping(ID);
+  if (res != -1) {
+    Serial.print("Servo ID:");
+    Serial.println(ID, DEC);
+    SerialBT->printf("Servo ID: %d \n", ID);
+    delay(100);
+  } else {
+    Serial.println("Ping servo ID error!");
+    SerialBT->printf("Ping servo ID error!\n");
+    delay(100);
+  }
+}
+
+int FingersController::readTemper(const u8 ID) {
+  return st.ReadTemper(ID);
+}
+
+int FingersController::readMaxTorque(u8 ID) {
+  int torqueLimit = st.readWord(ID, SMS_STS_TORQUE_LIMIT_L);
+  if (torqueLimit == -1) {
+    SerialBT->print("Error reading torque limit for servo ");
+    SerialBT->println(ID);
+    return -1;  // Error code
+  }
+  return torqueLimit;  // Returns 0-1000 (1000 = 100% max torque)
+}
+
+void FingersController::printFeedback(const int id) {
+  int Pos;
+  int Speed;
+  int Load;
+  int Voltage;
+  int Temper;
+  int Move;
+  int Current;
+  int MaxTorque;
+  if (st.FeedBack(id) != -1) {
+    Pos = st.ReadPos(id);
+    Speed = st.ReadSpeed(id);
+    Load = st.ReadLoad(id);
+    Voltage = st.ReadVoltage(id);
+    Temper = st.ReadTemper(id);
+    Move = st.ReadMove(id);
+    Current = st.ReadCurrent(id);
+    MaxTorque = readMaxTorque(id);
+    SerialBT->printf("ID:%d, P:%d, L:%d, V:%d, T:%d, M:%d, C:%d, MaxT:%d\n", id, Pos, Load, Voltage, Temper, Move, Current, MaxTorque);
+    delay(10);
+  } else {
+    SerialBT->println("FeedBack ERROR!");
+    delay(500);
+  }
+}
+
+void FingersController::changeID(const int currentId, const int newId) {
+  st.unLockEprom(currentId);                   // Unlock EPROM-SAFE
+  st.writeByte(currentId, SMS_STS_ID, newId);  // Change ID
+  st.LockEprom(newId);                         // EPROM-SAFE is locked
+
+  int ID = st.Ping(newId);
+  if (ID == newId) {
+    SerialBT->println("New ID successfully set!");
+  } else {
+    SerialBT->println("FAILED to set new ID!");
+  }
+}
+
+void FingersController::readPositions(u8 IDN, u8 IDs[], s16 positions[]) {
+
+  st.syncReadPacketTx(IDs, IDN, SMS_STS_PRESENT_POSITION_L, 2);
+
+  for (int i = 0; i < IDN; i++) {
+    u8 data[2];
+    if (st.syncReadPacketRx(IDs[i], data) == 2) {
+      // Use the built-in decoder!
+      positions[i] = (s16)st.syncReadRxPacketToWrod(15);  // 15 = negative bit for position
+    }
+  }
+}
+
+void FingersController::readFeedback(s16 load[5], u8 voltage[5],
+                                     u8 temperature[5], s16 current[5]) {
+  u8 IDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+
+  readFeedback(SERVOS_SIZE, IDs, load, voltage, temperature, current);
+}
+
+// Reads load, voltage, temperature, and current for all servos in a single
+// sync-read transaction. Each output array must be sized to >= IDN elements.
+//
+// Units (STS series):
+//   load        : 0.1% steps, signed (sign bit 10)
+//   voltage[]   : 0.1 V steps  (e.g. 120 = 12.0 V)
+//   temperature : °C
+//   current[]   : ~6.5 mA steps, signed (sign bit 15)
+void FingersController::readFeedback(u8 IDN, u8 IDs[],
+                                     s16 load[],
+                                     u8 voltage[],
+                                     u8 temperature[],
+                                     s16 current[]) {
+
+  // Contiguous block: PRESENT_LOAD_L (60) .. PRESENT_CURRENT_H (70) = 11 bytes.
+  const u8 startAddr = SMS_STS_PRESENT_LOAD_L;                                 // 60
+  const u8 blockLen = SMS_STS_PRESENT_CURRENT_H - SMS_STS_PRESENT_LOAD_L + 1;  // 11
+
+  st.syncReadPacketTx(IDs, IDN, startAddr, blockLen);
+
+  for (int i = 0; i < IDN; i++) {
+    u8 data[blockLen];
+    if (st.syncReadPacketRx(IDs[i], data) == blockLen) {
+
+      // Offsets relative to startAddr (60):
+      //   [0..1] load    (60,61)
+      //   [2]    voltage (62)
+      //   [3]    temp    (63)
+      //   [9..10] current (69,70)
+
+      // --- Load: little-endian, sign bit at position 10 ---
+      u16 rawLoad = (u16)(data[0] | (data[1] << 8));
+      load[i] = (rawLoad & (1 << 10)) ? -(s16)(rawLoad & 0x03FF)
+                                      : (s16)(rawLoad & 0x03FF);
+
+      // --- Voltage (1 byte) ---
+      voltage[i] = data[2];
+
+      // --- Temperature (1 byte) ---
+      temperature[i] = data[3];
+
+      // --- Current: little-endian, sign bit at position 15 ---
+      u16 rawCurrent = (u16)(data[9] | (data[10] << 8));
+      current[i] = (rawCurrent & 0x8000) ? -(s16)(rawCurrent & 0x7FFF)
+                                         : (s16)(rawCurrent & 0x7FFF);
+    }
+  }
+}
+
+bool FingersController::posMatch(u8 IDN, u8 IDs[], s16 target_pos[]) {
+
+  s16 cur_pos[SERVOS_SIZE];
+  readPositions(IDN, IDs, cur_pos);
+
+  bool allClose = true;
+  int tolerance = 100;
+  for (int i = 0; i < IDN; i++) {
+    allClose = allClose && isClose(cur_pos[i], target_pos[i], tolerance);
+  }
+  return allClose;
+}
+
+// // Returns false if timed out
+bool FingersController::posMatchWait(u8 IDN, u8 IDs[], s16 target_pos[], const unsigned long timeout) {
+  auto t1 = millis();
+  while (!posMatch(IDN, IDs, target_pos)) {
+    delay(10);
+    if (millis() - t1 > timeout) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool FingersController::posMatch(u8 IDN, u8 pos1[], u8 pos2[], u8 thr) {
+  for (int i = 0; i < IDN; i++) {
+    if (abs(pos1[i] - pos2[i]) > thr) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool FingersController::stalled(u8 IDN, u8 IDs[]) {
+  for (u8 id = 0; id < IDN; id++) {
+    if (st.ReadMove(IDs[id])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void FingersController::setCurPosAsTarget(u8 IDN, u8 IDs[]) {
+  s16 curPos[SERVOS_SIZE];
+  u16 Speed[SERVOS_SIZE];
+  u8 Acc[SERVOS_SIZE];
+  readPositions(IDN, IDs, curPos);
+  for (int i = 0; i < IDN; i++) {
+    Speed[i] = 2000;
+    Acc[i] = 200;
+  }
+  st.SyncWritePosEx(IDs, IDN, curPos, Speed, Acc);
+}
+
+void FingersController::moveUntilLoadLimitHit(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Speed[], u8 Acc[]) {
+
+  u8 IDs[IDN];
+  s16 Pos[IDN];
+  for (u8 i = 0; i < IDN; i++) {
+    IDs[i] = getMotorIdByVectorIndex(IDXs[i]);
+    Pos[i] = getPosFromFactor(IDXs[i], Factor[i]);
+  }
+  moveUntilLoadLimitHit(IDN, IDs, Pos, Speed, Acc);
+}
+
+void FingersController::moveUntilLoadLimitHit(VectorIdx idx, const int factor, u16 speed, u8 acc) {
+  s16 pos = map(factor, 0, 100, MOTORS_POS_RANGE[idx][RANGE_MIN], MOTORS_POS_RANGE[idx][RANGE_MAX]);
+  pos = limit(pos, MOTORS_POS_RANGE[idx][RANGE_MIN], MOTORS_POS_RANGE[idx][RANGE_MAX]);
+  moveUntilLoadLimitHit(getMotorIdByVectorIndex(idx), pos, speed, acc);
+}
+
+void FingersController::move(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Speed[], u8 Acc[]) {
+
+  u8 IDs[IDN];
+  s16 Pos[IDN];
+  for (u8 i = 0; i < IDN; i++) {
+    IDs[i] = getMotorIdByVectorIndex(IDXs[i]);
+    Pos[i] = getPosFromFactor(IDXs[i], Factor[i]);
+  }
+
+  move(IDN, IDs, Pos, Speed, Acc);
+}
+
+void FingersController::move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
+  st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
+}
+
+void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
+
+  st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
+  delay(100);
+  unsigned long t1 = millis();
+  const unsigned long TIMEOUT_MS = 6000;  // 6 second timeout
+  while (!stalled(IDN, IDs)) {
+    delay(10);
+    yield();
+    if (millis() - t1 > TIMEOUT_MS) {
+      SerialBT->println("ERROR: moveUntilLoadLimitHit timeout!");
+      break;
+    }
+  }
+  setCurPosAsTarget(IDN, IDs);
+}
+
+void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc) {
+  u8 IDN = 1;
+  u8 IDs[IDN] = { ID };
+  s16 Pos[IDN] = { pos };
+  u16 Speed[IDN] = { speed };
+  u8 Acc[IDN] = { acc };
+  moveUntilLoadLimitHit(IDN, IDs, Pos, Speed, Acc);
+}
+
+void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
+
+  auto limitedMaxTorque = (u16)min(limits.MAX_LOAD, (int)maxTorque);
+  st.EnableTorque(ID, 0);  // Disable torque
+  st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, limitedMaxTorque);
+  st.EnableTorque(ID, 1);  // Enable with limit
+}
+
+void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]) {
+  // Prepare 2-byte torque values
+  u8 bytes[2 * IDN];  // 5 servos × 2 bytes each
+
+  // Convert to bytes
+  for (int i = 0; i < 5; i++) {
+    auto maxTorque = (u16)min(limits.MAX_LOAD, (int)MaxTorque[i]);
+    bytes[i * 2] = maxTorque & 0xFF;             // Low byte
+    bytes[i * 2 + 1] = (maxTorque >> 8) & 0xFF;  // High byte
+  }
+  // ONE SYNC WRITE - minimal delay!
+  st.syncWrite(IDs, IDN, SMS_STS_TORQUE_LIMIT_L, bytes, 2);
+}
+
+void FingersController::setRangeByCurrentPos(u8 IDN, VectorIdx IDXs[], u8 rangeIndex) {
+  for (u8 i = 0; i < IDN; i++) {
+    setRangeByCurrentPos(IDXs[i], rangeIndex);
+  }
+}
+
+void FingersController::setRangeByCurrentPos(VectorIdx IDX, u8 rangeIndex) {
+  MOTORS_POS_RANGE[IDX][rangeIndex] = readPos(getMotorIdByVectorIndex(IDX));
+  SerialBT->printf("Set IDX %d POS: %d\n", IDX, MOTORS_POS_RANGE[IDX][rangeIndex]);
+}
+
+// Safety
+void FingersController::safetyFeature() {
+  for (int id = 1; id <= FingersController::SERVOS_SIZE; id++) {
+    auto c = readCurrent(id);
+    auto l = readLoad(id);
+    auto t = readTemper(id);
+
+    // filter corrupted temperature values
+    bool tempValueInsideRange = (t >= 0 && t <= 120);
+    bool tempValueIsValid = false;
+    if (tempValueInsideRange) {
+      int tPrev = lastValidTemp[id];
+      if (tPrev >= 0 && abs(t - tPrev) > 5) {
+        tempValueIsValid = false;
+      } else {
+        tempValueIsValid = true;
+        lastValidTemp[id] = t;
+      }
+    }
+
+    auto fault = c >= limits.OVER_CURRENT || l >= limits.OVER_LOAD || tempValueInsideRange && tempValueIsValid && t >= limits.OVER_TEMP;
+
+    if (fault) {
+      enableTorque(id, false);
+      SerialBT->printf("Safety: disabled id %d (C:%d L:%d T:%d)!!\n", id, c, l, t);
+    } else {
+      enableTorque(id, true);
+    }
+  }
+}

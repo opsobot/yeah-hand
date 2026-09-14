@@ -1,0 +1,11 @@
+Functions and Variables managing the  Right Side
+================================================
+
+getPosFromFactor() // NOT UPDATED
+getFactorFromPos() // NOT UPDATED
+setRangeByCurrentPos() // UPDATED
+
+calibrateHand () // UPDATED 
+
+MOTORS_POS_TENDON_INSTALLATION // UPDATED
+
