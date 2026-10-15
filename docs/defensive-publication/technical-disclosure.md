@@ -25,8 +25,8 @@ directly to the same spool. The thumb-rotation actuator, carrying the thumb base
 on its flange, is mounted on a separate platform inserted into the skeleton.
 Fingers are modular, with tendons pre-installed. The controller reads position,
 load, voltage, temperature and current from each actuator, performs whole-hand
-calibration and force-limited grasps, and streams feedback for ROS. Control of
-the prosthetic version (EMG) is described in the Rebelia V1 disclosure.
+calibration and force-limited grasps, streams feedback for ROS, and supports
+two-channel EMG control in the prosthetic version.
 
 ## Keywords
 
@@ -35,7 +35,7 @@ tendon-driven; cable-driven; Bowden cable; Bowden tube; PTFE tube; sheath;
 antagonistic tendons; flexor tendon; extensor tendon; spool; two-part spool;
 stepped spool; capstan; underactuated; finger coupling; thumb opposition;
 actuator platform; modular finger; servo load feedback; tendon calibration;
-force-limited grasp; ROS; 3D-printed hand
+force-limited grasp; ROS; EMG; myoelectric prosthesis; 3D-printed hand
 
 ## Background
 
@@ -120,10 +120,11 @@ are then pulled into their Bowden tubes and fixed to the spool. Fingers can be
 replaced individually. Grip surfaces use rigid and flexible printed polymers
 with replaceable silicone pads.
 
-### 7. Control and feedback (Fig. 7)
+### 7. Control and feedback (Figs. 7, 8)
 
 The controller (ESP32) commands the servos over a serial bus and reads from each
-servo position, load, voltage, temperature and current. Functions:
+servo position, load, voltage, temperature and current. Functions of the
+robotic firmware (RebeliaRobot):
 
 - whole-hand calibration: each servo, including thumb rotation, is driven
   towards each end of its travel until its load limit is reached, moved back
@@ -138,17 +139,20 @@ servo position, load, voltage, temperature and current. Functions:
   ("ROS a b c d e"), and the controller streams position, load, voltage,
   temperature and current of all servos about every 100 ms;
 - tendon installation mode, moving servos to predefined positions;
-- left/right hand selected in firmware; Bluetooth and Wi-Fi links.
+- left/right hand selected in firmware; Bluetooth and Wi-Fi links;
 
-The prosthetic (EMG) control firmware included in the repository is the same
-as in Rebelia V1 and is described in the V1 disclosure.
+Prosthetic firmware (RebeliaHuman, same as in Rebelia V1): two-channel EMG
+control, where the FFT intensity of each channel is compared with its own
+threshold to open, close or hold the hand, with grasp presets, force-limited
+closing, automatic relax and grasp selection by manual thumb positioning. The
+automatic calibration routine belongs to the robotic firmware only.
 
 ## Figures
 
 The figures are included in the PDF version of this disclosure
 (`technical-disclosure.pdf` in this folder). Fig. 2 is rendered from the V2 STL
 files of release v1.2; Figs. 1 and 3–6 are taken from the V2 assembly
-instructions (Rev 1.8); Fig. 7 is drawn from the published firmware.
+instructions (Rev 1.8); Figs. 7–8 are drawn from the published firmware.
 
 - Fig. 1 — Overall view: upper fingers, thumb, thumb base, palm, covers and attachment flange.
 - Fig. 2 — V2 skeleton, front and rear (holes, tunnels and slots for the Bowden tubes); skeleton with TRS platform, thumb base, index finger and ISO 9409 flange.
@@ -156,7 +160,8 @@ instructions (Rev 1.8); Fig. 7 is drawn from the published firmware.
 - Fig. 4 — Bowden tubes installed in the skeleton, front and rear views.
 - Fig. 5 — Two-part spool: extension spool (top) and flexion spool (bottom), before and after assembly with the locking bolts.
 - Fig. 6 — Tendon installation on the two-part spool: pre-winding and locking of the extension end and of the flexion end.
-- Fig. 7 — Flow chart of calibration and force-limited closing.
+- Fig. 7 — Flow chart of calibration and force-limited closing (robotic firmware).
+- Fig. 8 — Flow chart of the two-channel EMG decision rule (prosthetic version).
 
 ## Alternative embodiments
 
