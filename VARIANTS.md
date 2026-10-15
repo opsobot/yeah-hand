@@ -58,7 +58,10 @@ EMG control in the prosthetic version). V2 adds or changes:
 4. **Thumb rotation servo platform (TRS platform).** The thumb rotation
    actuator, with the thumb base bolted to its flange, is mounted on a separate
    platform that is inserted into the skeleton as a sub-assembly.
-5. **Modular fingers with pre-installed tendons.** Each finger is supplied
+5. **Modular, identical upper fingers with pre-installed tendons.** The same
+   finger design (the "index" STL files) is used for index, middle, ring and
+   little fingers: identical, interchangeable modules, which simplify
+   production, moulds, assembly and spare parts. Each finger is supplied
    with its tendon already threaded and anchored, and is inserted in its slot
    on the skeleton; the free tendon ends are then pulled through the Bowden
    tubes with a nylon-loop needle and fixed to the spool.
@@ -85,7 +88,12 @@ EMG control in the prosthetic version). V2 adds or changes:
   sections; non-circular (cam) profiles; parts rotationally adjustable with
   respect to each other to pre-tension the tendon, then locked; tendon locking
   by bolt, set screw, clamp plate or wedge.
-- Direct coupling of two or more fingers on one spool, with equal or
+- Upper fingers: one identical module for all positions (V2 reference), or
+  fingers with individual lengths and proportions for each position
+  (anthropomorphic), scaled sizes (child, adult, oversize), or a common
+  module with position-specific phalanx lengths, covers or pads.
+- Direct coupling of two or more fingers on one spool (in V2 the ring and
+  little fingers open and close together), with equal or
   different spool diameters per finger to set the relative closing speed.
 - TRS platform: platform carrying one or more actuators (thumb rotation, thumb
   flexion, wrist), removable as a module; quick-release fixing.

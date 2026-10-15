@@ -34,7 +34,7 @@ robotic hand; prosthetic hand; artificial hand; gripper; end effector;
 tendon-driven; cable-driven; Bowden cable; Bowden tube; PTFE tube; sheath;
 antagonistic tendons; flexor tendon; extensor tendon; spool; two-part spool;
 stepped spool; capstan; underactuated; finger coupling; thumb opposition;
-actuator platform; modular finger; servo load feedback; tendon calibration;
+actuator platform; modular finger; identical fingers; interchangeable finger; servo load feedback; tendon calibration;
 force-limited grasp; ROS; EMG; myoelectric prosthesis; 3D-printed hand
 
 ## Background
@@ -108,12 +108,16 @@ ends.
 The ring and little fingers share one servo. The flexion ends of both fingers
 are fixed together to the flexion part of the same two-part spool, and the
 extension ends of both fingers to the extension part, without clamps or sliding
-loops (used in V1). The two fingers close together; their relative motion is
-set by their tendon lengths and routing.
+loops (used in V1). The ring and little fingers therefore close and open
+together, driven by the same spool rotation.
 
-### 6. Modular fingers
+### 6. Modular, identical upper fingers
 
-Each finger is supplied with its tendon already threaded through the phalanges
+The four upper fingers (index, middle, ring, little) use one and the same finger
+design: identical phalanges, joints, inserts, covers and pads, interchangeable
+between positions. One finger module is produced and stocked for all four
+positions, which reduces part count, tooling (including silicone pad moulds),
+assembly steps and spare parts. Each finger is supplied with its tendon already threaded through the phalanges
 and anchored at the distal phalanx. The finger is inserted into its slot on the
 skeleton and fixed with a screw and a nut; the free flexion and extension ends
 are then pulled into their Bowden tubes and fixed to the spool. Fingers can be
@@ -171,7 +175,10 @@ skeleton, and may extend outside the hand to actuators in the forearm, on the
 robot or remote. The two-part spool may have equal or different diameters,
 stepped, conical or cam-shaped sections, parts rotatable with respect to each
 other for pre-tensioning and then locked, more than two parts for coupled
-fingers, and tendon locking by bolt, set screw, clamp plate or wedge. Two or
+fingers, and tendon locking by bolt, set screw, clamp plate or wedge. Upper fingers may
+use one identical module, or modules of individual lengths and proportions for
+each position (index, middle, ring, little), scaled or anthropometric sizes,
+or a common module with position-specific phalanx lengths or covers. Two or
 more fingers may be coupled directly on one spool, with equal or different
 diameters per finger to set their relative speed. The actuator platform may
 carry one or more actuators (thumb rotation, thumb flexion, wrist) and be
@@ -191,7 +198,8 @@ Rebelia V1 disclosure.
   take-up and release diameters.
 - Two fingers coupled on one actuator with no extra parts.
 - Thumb rotation actuator assembled and replaced as a module.
-- Fingers replaceable individually, supplied with tendons pre-installed.
+- One identical, interchangeable module for all four upper fingers, supplied
+  with tendons pre-installed and replaceable individually.
 - Rich feedback for safe operation and integration with ROS.
 
 ## Applications
