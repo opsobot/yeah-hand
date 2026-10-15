@@ -17,8 +17,9 @@ abstract: >-
   prosthetic version. Successor of Rebelia V1 (OSHWA IT000021).
 repository-code: "https://github.com/opsobot/yeah-hand"
 license: CERN-OHL-S-2.0
-version: "1.2"
-date-released: "2026-09-14"
+version: "1.3"
+date-released: "2026-10-15"
+doi: "10.5281/zenodo.23397456"
 keywords:
   - open source hardware
   - robotic hand
