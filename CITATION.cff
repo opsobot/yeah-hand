@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use or build on this design, please cite it as below."
-title: "Yeah Hand (Rebelia V2): an open source tendon-driven robotic and prosthetic hand"
+title: "Yeah Hand: an open source tendon-driven robotic and prosthetic hand"
 type: software
 authors:
   - family-names: "Lumare"
