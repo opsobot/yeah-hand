@@ -1,0 +1,17 @@
+{
+  "title": "Yeah Hand (Rebelia V2): an open source tendon-driven robotic and prosthetic hand",
+  "upload_type": "other",
+  "description": "<p>Open source anthropomorphic hand, 3D-printable, usable as a robotic end effector and as an active prosthetic hand. Successor of Rebelia V1 (OSHWA certified IT000021, DOI 10.5281/zenodo.23394100).</p><p>Five serial bus servomotors housed in the internal skeleton of the hand drive the fingers through antagonistic flexion and extension tendons. Each tendon end runs in its own PTFE Bowden tube, seated in holes, tunnels and slots of the skeleton, to a two-part spool (flexion part and extension part) on the actuator flange. Ring and little fingers are coupled directly on the same spool. The thumb rotation servo, with the thumb base on its flange, is mounted on a removable platform. The ESP32 firmware provides whole-hand calibration, force-limited grasps, grasp presets, a ROS mode streaming position, load, voltage, temperature and current of every actuator, and two-channel FFT-based EMG control in the prosthetic version.</p><p>Published as open source hardware and as a public technical disclosure (prior art). V2 sources first published on GitHub on 26 November 2025 (opsobot/rebelia, branch V2).</p><p>Hardware: CERN-OHL-S-2.0. Firmware: GPL-3.0-or-later. Documentation and images: CC-BY-SA-4.0. \"Yeah Hand\" is a registered EU trademark (no. 019374244).</p>",
+  "creators": [
+    {
+      "name": "Lumare, Vittorio"
+    }
+  ],
+  "license": "cern-ohl-s-2.0",
+  "access_right": "open",
+  "keywords": ["open source hardware", "OSHW", "robotic hand", "prosthetic hand", "tendon-driven", "Bowden cable", "gripper", "ROS", "defensive publication"],
+  "related_identifiers": [
+    {"identifier": "https://github.com/opsobot/yeah-hand", "relation": "isSupplementTo", "resource_type": "other"},
+    {"identifier": "10.5281/zenodo.23394100", "relation": "isNewVersionOf", "resource_type": "other"}
+  ]
+}

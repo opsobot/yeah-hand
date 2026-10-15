@@ -64,28 +64,35 @@ Repository Structure
 
 ```
 /hardware
-  ├── CAD/ (STL native Blender format)
-    ├── LICENSE (CERN OHL-S)
-  ├── renders/ (images of the robotic hand)
-    ├── LICENSE (CC-BY-SA)
+  ├── LICENSE.txt (CERN OHL-S)
+  ├── Electronics/ (prosthetic version board: Gerber, netlist, part list)
+  ├── Renders/ (images of the robotic hand)
+    ├── LICENSE.txt (CC-BY-SA)
   ├── BOM.md (Bill of Materials — list of components and suppliers)
 /firmware
-  ├── LICENSE (GNU GPL)
-  ├── src/ (firmware code)
+  ├── LICENSE.txt (GNU GPL)
+  ├── src/ (RebeliaRobot, RebeliaHuman, Servo Registration)
   ├── README.md (how to compile and upload the firmware)
 /docs
-  ├── Assembly Instructions.odt (Original source document)
-  ├── Assembly Instructions.pdf (Exported final document)
+  ├── Assembly instructions (IT original and EN translation, PDF)
+  ├── defensive-publication/ (technical disclosure for prior-art purposes)
 ├── LICENSE (licenses description for the whole repo)
-├── README.md (project overview)
+├── Readme.md (project overview)
+├── VARIANTS.md (alternative embodiments and possible extensions)
+├── TRADEMARK.md (use of the Yeah Hand name)
+├── CITATION.cff, .zenodo.json (citation and archiving metadata)
 ```
+
+CAD sources (Blender `.blend`) and STL files are attached to the
+[GitHub releases](https://github.com/opsobot/yeah-hand/releases) because they
+are too large for the repository.
 
 
 CAD Files
 =========
 
 Our CAD files are hosted on both GitHub and GrabCAD:
-* GitHub (for version control and collaboration): ./hardware/CAD folder
+* GitHub: attached to the [releases](https://github.com/opsobot/yeah-hand/releases) (Blender source and STL files)
 * GrabCAD (for easy preview and download): TODO when development is completed )
 
 Bill of Materials (BOM)
@@ -100,15 +107,16 @@ Licensing
 =========
 This project is licensed under multiple licenses:
 * Hardware : released under the CERN Open Hardware License Strongly Reciprocal v2 (CERN OHL-S). [Full license text](https://ohwr.org/project/cernohl/-/wikis/uploads/819d71bea3458f71fba6cf4fb0f2de6b/cern_ohl_s_v2.txt)
-* Firmware : released under the GNU GPL License. [Full license text](https://www.gnu.org/licenses/gpl-3.0.html)
-* Multimedia : released under the Creative Commons Attribution License (CC-BY-SA). [Full license text](https://creativecommons.org/licenses/by-sa/4.0/deed.en)
+* Firmware : released under the GNU GPL License, version 3 or later. [Full license text](https://www.gnu.org/licenses/gpl-3.0.html)
+* Documentation and multimedia : released under the Creative Commons Attribution-ShareAlike 4.0 License (CC-BY-SA). [Full license text](https://creativecommons.org/licenses/by-sa/4.0/deed.en)
 
-By using or modifying this hardware, software and/or documentation, you agree to:
-* Credit the original authors.
-* If you release any modifications or derivatives to hardware, they must be released under the same CERN OHL-S license.
-* If you release any modifications or derivatives to firmware, they must be released under the same GNU GPL license.
-* If you release any modifications or derivatives to multimedia content, they must be released under the same CC-BY-SA license.
-* Prevent patent claims on the design and any derivative works.
+Anyone may study, build, modify and sell this design or products based on it. In short, if you distribute the design, modified versions or products made from it, you must:
+* Credit the original authors and keep the license notices.
+* Release modifications or derivatives of the hardware under the same CERN OHL-S license, with their sources, and indicate the Source Location (https://github.com/opsobot/yeah-hand) on products where practicable.
+* Release modifications or derivatives of the firmware under the GNU GPL license.
+* Release modifications or derivatives of documentation and multimedia content under the CC-BY-SA license.
+
+Both CERN OHL-S v2 and GNU GPLv3 include a patent licence: every contributor grants all users the rights under their patents needed to use what they distribute, and anyone who starts patent litigation over the design loses their rights under the licence. See the LICENSE file for details.
 
 Contributing
 ============
@@ -117,10 +125,25 @@ We welcome contributions! Please:
 2. Create a branch (feature-xyz).
 3. Submit a pull request.
 
+Contributions are accepted under the same license as the part of the repository they modify. If you introduce a new technical solution, please also describe it, with any alternatives you considered, in [VARIANTS.md](VARIANTS.md): publishing ideas openly keeps them free for everyone.
+
 Defensive Publication
 =====================
-This design is publicly released to establish prior art and prevent patenting by third parties. 
-Our goal is to ensure that the robotic hand remains open and accessible to all.
+This design is publicly released to establish prior art and prevent patenting by third parties.
+Our goal is to ensure that the robotic hand remains open and accessible to all: nobody should be able to obtain exclusive rights that stop anyone else from making, improving or selling it.
+
+* V2 sources first published on GitHub on 26 November 2025 ([rebelia, branch V2](https://github.com/opsobot/rebelia/tree/V2)); this repository and release v1.2 on 14 September 2026.
+* Rebelia V1 (OSHWA IT000021): [repository](https://github.com/opsobot/rebelia), Zenodo [10.5281/zenodo.23394100](https://doi.org/10.5281/zenodo.23394100).
+* Alternative embodiments and extensions: [VARIANTS.md](VARIANTS.md)
+* Technical disclosure of V2: [docs/defensive-publication](docs/defensive-publication/technical-disclosure.md) ([PDF](docs/defensive-publication/technical-disclosure.pdf))
+
+Trademark
+=========
+The design is free; the name "Yeah Hand" is a registered EU trademark (EUTM no. 019374244). You are welcome to build and sell your own version under your own name, and to say it is "based on the Yeah Hand". See [TRADEMARK.md](TRADEMARK.md).
+
+How to Cite
+===========
+Use the "Cite this repository" button on GitHub or the metadata in [CITATION.cff](CITATION.cff).
 
 For further information, visit our website: http://www.robotgarage.org
 
