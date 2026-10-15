@@ -135,6 +135,7 @@ Our goal is to ensure that the robotic hand remains open and accessible to all: 
 * V2 sources first published on GitHub on 26 November 2025 ([rebelia, branch V2](https://github.com/opsobot/rebelia/tree/V2)); this repository and release v1.2 on 14 September 2026.
 * Rebelia V1 (OSHWA IT000021): [repository](https://github.com/opsobot/rebelia), Zenodo [10.5281/zenodo.23394100](https://doi.org/10.5281/zenodo.23394100).
 * Alternative embodiments and extensions: [VARIANTS.md](VARIANTS.md)
+* Technical disclosure of V2: [docs/defensive-publication](docs/defensive-publication/technical-disclosure.md) ([PDF](docs/defensive-publication/technical-disclosure.pdf))
 
 Trademark
 =========
