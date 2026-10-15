@@ -3,7 +3,7 @@ Rebelia - An Open Source Robotic Hand for Humans and Robots
 
 BOM
 ===
-All components required to assemble Rebelia V2 are listed here.
+All components required to assemble the Yeah Hand are listed here.
 
 Servomotors
 ===========

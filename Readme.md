@@ -1,5 +1,6 @@
-Yeah Hand (Rebelia V2) - An Open Source Robotic Hand for Humans and Robots
-==========================================================================
+Yeah Hand - An Open Source Robotic Hand for Humans and Robots
+=============================================================
+*First released as Rebelia V2 (Yeah Hand v1.0); current version v1.3.*
 **Official development partner: Public Invention** [Public Invention Project Page](https://www.pubinv.org/project/yeah-robotic-hand/)
 
 ![image](https://pubinv.b-cdn.net/wp-content/uploads/logo-tight.png)
@@ -28,7 +29,7 @@ Welcome to the Yeah Hand Project — an open-source, humanlike robotic hand desi
 
 Our goal is to provide an affordable, high-performance robotic hand under 2000 EUR, open to community contributions and continuous improvement.
 
-NOTE: This version will be certified with OSHWA after is stable, at the moment the only version certified with OSHWA is the V1, you can check its branch 'V1' in the repo.
+NOTE: This version will be certified with OSHWA after is stable, at the moment the only version certified with OSHWA is the Rebelia V1, you can check its branch 'V1' in the rebelia repository.
 
 This project hardware is released under the CERN Open Hardware License (OHL-S), ensuring the design remains open-source and preventing patent claims on its core innovations.
 
@@ -132,10 +133,10 @@ Defensive Publication
 This design is publicly released to establish prior art and prevent patenting by third parties.
 Our goal is to ensure that the robotic hand remains open and accessible to all: nobody should be able to obtain exclusive rights that stop anyone else from making, improving or selling it.
 
-* V2 sources first published on GitHub on 26 November 2025 ([rebelia, branch V2](https://github.com/opsobot/rebelia/tree/V2)); this repository and release v1.2 on 14 September 2026.
+* First published on GitHub on 26 November 2025 as Rebelia V2, i.e. Yeah Hand v1.0 ([rebelia, branch V2](https://github.com/opsobot/rebelia/tree/V2)); this repository and release v1.2 on 14 September 2026.
 * Rebelia V1 (OSHWA IT000021): [repository](https://github.com/opsobot/rebelia), Zenodo [10.5281/zenodo.23394100](https://doi.org/10.5281/zenodo.23394100).
 * Alternative embodiments and extensions: [VARIANTS.md](VARIANTS.md)
-* Technical disclosure of V2: [docs/defensive-publication](docs/defensive-publication/technical-disclosure.md) ([PDF](docs/defensive-publication/technical-disclosure.pdf))
+* Technical disclosure of the Yeah Hand: [docs/defensive-publication](docs/defensive-publication/technical-disclosure.md) ([PDF](docs/defensive-publication/technical-disclosure.pdf))
 
 Trademark
 =========

@@ -1,8 +1,8 @@
 # Tendon-driven anthropomorphic hand with Bowden-tube tendon routing inside the hand skeleton, two-part antagonistic spools, direct finger coupling on the spool and a removable thumb-rotation actuator platform, for robotic and prosthetic use
 
 - **Author:** Vittorio Lumare (vittorio.lumare@robotgarage.org)
-- **Project name:** Yeah Hand (Rebelia V2)
-- **First public disclosure of V2:** 26 November 2025, https://github.com/opsobot/rebelia/tree/V2 ; repository https://github.com/opsobot/yeah-hand and release v1.2 on 14 September 2026; assembly instructions Rev 1.8 on 5 October 2026
+- **Project name:** Yeah Hand (current version v1.3; first published as Rebelia V2 = Yeah Hand v1.0)
+- **First public disclosure:** 26 November 2025 as Rebelia V2 (Yeah Hand v1.0), https://github.com/opsobot/rebelia/tree/V2 ; repository https://github.com/opsobot/yeah-hand and release v1.2 on 14 September 2026; assembly instructions Rev 1.8 on 5 October 2026
 - **Previous version:** Rebelia V1, OSHWA IT000021, https://doi.org/10.5281/zenodo.23394100 , technical disclosure published on Technical Disclosure Commons
 - **License of this document:** CC BY 4.0
 
@@ -80,7 +80,7 @@ the spool. Tubes are cut to length. The skeleton geometry (holes, tunnels,
 slots) thus defines and fixes the path of every tendon end; tendons are
 separated from each other and from moving parts, and the path length is
 independent of the motion of other parts. A separate tendon barrier, used in
-V1, is no longer needed. Tendons are threaded through the tubes with a loop of
+Rebelia V1, is no longer needed. Tendons are threaded through the tubes with a loop of
 nylon line used as a needle.
 
 ### 4. Two-part antagonistic spool (Figs. 5, 6)
@@ -108,7 +108,7 @@ ends.
 The ring and little fingers share one servo. The flexion ends of both fingers
 are fixed together to the flexion part of the same two-part spool, and the
 extension ends of both fingers to the extension part, without clamps or sliding
-loops (used in V1). The ring and little fingers therefore close and open
+loops (used in Rebelia V1). The ring and little fingers therefore close and open
 together, driven by the same spool rotation.
 
 ### 6. Modular, identical upper fingers
@@ -154,12 +154,12 @@ automatic calibration routine belongs to the robotic firmware only.
 ## Figures
 
 The figures are included in the PDF version of this disclosure
-(`technical-disclosure.pdf` in this folder). Fig. 2 is rendered from the V2 STL
-files of release v1.2; Figs. 1 and 3–6 are taken from the V2 assembly
+(`technical-disclosure.pdf` in this folder). Fig. 2 is rendered from the Yeah Hand STL
+files of release v1.2; Figs. 1 and 3–6 are taken from the Yeah Hand assembly
 instructions (Rev 1.8); Figs. 7–8 are drawn from the published firmware.
 
 - Fig. 1 — Overall view: upper fingers, thumb, thumb base, palm, covers and attachment flange.
-- Fig. 2 — V2 skeleton, front and rear (holes, tunnels and slots for the Bowden tubes); skeleton with TRS platform, thumb base, index finger and ISO 9409 flange.
+- Fig. 2 — Yeah Hand skeleton, front and rear (holes, tunnels and slots for the Bowden tubes); skeleton with TRS platform, thumb base, index finger and ISO 9409 flange.
 - Fig. 3 — Thumb base on the thumb rotation servo; servo and thumb base on the TRS platform; TRS platform installed in the skeleton.
 - Fig. 4 — Bowden tubes installed in the skeleton, front and rear views.
 - Fig. 5 — Two-part spool: extension spool (top) and flexion spool (bottom), before and after assembly with the locking bolts.

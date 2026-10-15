@@ -1,11 +1,11 @@
-# Yeah Hand (Rebelia V2) — Alternative embodiments, variants and extensions
+# Yeah Hand — Alternative embodiments, variants and extensions
 
-This document is part of the public technical disclosure of the Yeah Hand
-(Rebelia V2), an open source tendon-driven anthropomorphic hand usable as a
+This document is part of the public technical disclosure of the Yeah Hand,
+an open source tendon-driven anthropomorphic hand usable as a
 robotic end effector and as an active prosthetic hand. It extends the
 disclosure of Rebelia V1 (https://github.com/opsobot/rebelia, OSHWA IT000021,
 Zenodo DOI 10.5281/zenodo.23394100; technical disclosure on Technical
-Disclosure Commons), whose content remains valid for V2 unless stated below.
+Disclosure Commons), whose content remains valid for Yeah Hand unless stated below.
 
 Its purpose is to describe, as broadly as possible, the ways in which the
 concepts of this design can be implemented, modified and extended, so that all
@@ -18,27 +18,27 @@ First public disclosure on GitHub:
 | Part | Where | Date |
 |---|---|---|
 | Rebelia V1 mechanical design, firmware, electronics | opsobot/rebelia | 2025-03-03 to 2025-04-20 |
-| V2 Blender sources (hierarchic model, two-part spools) | opsobot/rebelia, branch V2 | 2025-11-26 |
-| V2 robotic firmware (feedback, calibration, ROS mode) | opsobot/rebelia, branch V2 | 2026-02-01 to 2026-02-25 |
+| Rebelia V2 = Yeah Hand v1.0: Blender sources (hierarchic model, two-part spools) | opsobot/rebelia, branch V2 | 2025-11-26 |
+| Rebelia V2 = Yeah Hand v1.0: robotic firmware (feedback, calibration, ROS mode) | opsobot/rebelia, branch V2 | 2026-02-01 to 2026-02-25 |
 | Yeah Hand repository and release v1.2 (STL, Blender source) | opsobot/yeah-hand | 2026-09-14 |
 | Yeah Hand assembly instructions Rev 1.8 (IT, EN) | opsobot/yeah-hand | 2026-10-05 |
 | This document | opsobot/yeah-hand | 2026-10-15 |
 
 ---
 
-## 1. Core concepts of the V2 reference design
+## 1. Core concepts of the Yeah Hand reference design
 
-All core concepts of V1 apply (actuators housed in the hand skeleton,
+All core concepts of Rebelia V1 apply (actuators housed in the hand skeleton,
 antagonistic flexion/extension tendons driven by one actuator per finger,
 self-locking distal anchoring, thumb base on the thumb rotation actuator
 flange, load-based calibration and force-limited grasping, grasp presets,
-EMG control in the prosthetic version). V2 adds or changes:
+EMG control in the prosthetic version). Yeah Hand adds or changes:
 
 1. **Bowden-tube tendon routing.** Each flexion tendon and each extension
    tendon runs inside its own low-friction tube (PTFE) from the finger to the
    spool. The tubes are inserted in holes, pass-through tunnels and seating
    slots formed in the printed skeleton, which fix their two ends and their
-   path. The tubes keep tendons separated and guided, so the V1
+   path. The tubes keep tendons separated and guided, so the Rebelia V1
    tendons-barrier is no longer needed, and they keep the tendon path length
    constant regardless of how the tendons are routed inside the hand.
 2. **Two-part spool.** Each flexion actuator carries a spool assembly made of
@@ -78,7 +78,7 @@ EMG control in the prosthetic version). V2 adds or changes:
 8. **Grip surfaces.** Rigid and flexible printed polymers with replaceable,
    interchangeable skin-safe silicone pads.
 
-### V2-specific variants
+### Yeah Hand-specific variants
 
 - Bowden tubes: PTFE, nylon, polyethylene, coil-wound steel housings, lined
   tubes; one tube per tendon end or shared multi-lumen tubes; tubes moulded or
@@ -88,11 +88,11 @@ EMG control in the prosthetic version). V2 adds or changes:
   sections; non-circular (cam) profiles; parts rotationally adjustable with
   respect to each other to pre-tension the tendon, then locked; tendon locking
   by bolt, set screw, clamp plate or wedge.
-- Upper fingers: one identical module for all positions (V2 reference), or
+- Upper fingers: one identical module for all positions (Yeah Hand reference), or
   fingers with individual lengths and proportions for each position
   (anthropomorphic), scaled sizes (child, adult, oversize), or a common
   module with position-specific phalanx lengths, covers or pads.
-- Direct coupling of two or more fingers on one spool (in V2 the ring and
+- Direct coupling of two or more fingers on one spool (in Yeah Hand the ring and
   little fingers open and close together), with equal or
   different spool diameters per finger to set the relative closing speed.
 - TRS platform: platform carrying one or more actuators (thumb rotation, thumb
@@ -118,12 +118,12 @@ EMG control in the prosthetic version). V2 adds or changes:
 
 | Element | Reference implementation | Alternatives |
 |---|---|---|
-| Tendon material | V2: braided polyethylene line (V1: nylon line) | UHMWPE (Dyneema/Spectra), aramid, steel cable, PTFE-coated cable, braided fishing line |
-| Spool | V2: two-part spool per actuator, a flexion spool and an extension spool stacked on the same flange, tendons wound in opposite directions (V1: one-piece spool) | **Stepped spool: one spool made of two coaxial sections of different diameter, one section for each end of the tendon (one for flexion, one for extension), wound in opposite directions on the same actuator. The ratio between the two diameters matches the different length that the flexion path and the extension path take up or release during finger motion, so both ends stay tensioned without springs or tensioners; the ratio can be chosen per finger.** Separate spools of different diameters for flexion and extension on the same shaft; more than two sections (e.g. for coupled fingers); non-circular (cam-shaped) sections for variable transmission ratio along the motion; spool integrated in the servo horn |
+| Tendon material | Yeah Hand: braided polyethylene line (Rebelia V1: nylon line) | UHMWPE (Dyneema/Spectra), aramid, steel cable, PTFE-coated cable, braided fishing line |
+| Spool | Yeah Hand: two-part spool per actuator, a flexion spool and an extension spool stacked on the same flange, tendons wound in opposite directions (Rebelia V1: one-piece spool) | **Stepped spool: one spool made of two coaxial sections of different diameter, one section for each end of the tendon (one for flexion, one for extension), wound in opposite directions on the same actuator. The ratio between the two diameters matches the different length that the flexion path and the extension path take up or release during finger motion, so both ends stay tensioned without springs or tensioners; the ratio can be chosen per finger.** Separate spools of different diameters for flexion and extension on the same shaft; more than two sections (e.g. for coupled fingers); non-circular (cam-shaped) sections for variable transmission ratio along the motion; spool integrated in the servo horn |
 | Tendon locking on spool | Bolt head clamping | Set screw, crimp sleeve, knot in a slot, wedge clamp, quick-release clip |
 | Tendon locking on phalanx | Double self-wrap | Knot, crimp sleeve, glue, printed hook, threaded insert with set screw |
-| Tendon guiding | V2: PTFE Bowden tubes from each finger to its spool, routed through holes, tunnels and slots in the skeleton (V1: holes and channels in printed parts and a tendons-barrier) | PTFE tubes; Bowden sheaths; small pulleys or bearings at joints; low-friction inserts |
-| Ring–little coupling | V2: both ends of the ring and little tendons fixed directly to the same two-part spool (V1: crimped clamp and sliding loop) | Whiffletree / rocker lever; pulley differential; elastic link; coupling of more fingers (e.g. middle+ring+little on one actuator); full single-actuator hand with differential tree |
+| Tendon guiding | Yeah Hand: PTFE Bowden tubes from each finger to its spool, routed through holes, tunnels and slots in the skeleton (Rebelia V1: holes and channels in printed parts and a tendons-barrier) | PTFE tubes; Bowden sheaths; small pulleys or bearings at joints; low-friction inserts |
+| Ring–little coupling | Yeah Hand: both ends of the ring and little tendons fixed directly to the same two-part spool (Rebelia V1: crimped clamp and sliding loop) | Whiffletree / rocker lever; pulley differential; elastic link; coupling of more fingers (e.g. middle+ring+little on one actuator); full single-actuator hand with differential tree |
 | Tendon tension | Set at installation and calibrated by firmware | Spring-loaded tensioners; elastic segment in series (series elastic actuation); adjustable screw tensioners at the spool |
 | Alternative transmissions | Tendons | Linkages; worm gear at each joint; lead screw and nut driving a linkage; hydraulic or pneumatic soft actuators |
 
@@ -186,11 +186,11 @@ Discarded solutions are prior art too.*
 
 - Tendon threading: several tools were tried; a loop of 0.35 mm nylon thread
   used as a needle proved the fastest and most reliable method.
-- V1 tendons-barrier on the rear of the skeleton: replaced in V2 by Bowden
+- Rebelia V1 tendons-barrier on the rear of the skeleton: replaced in Yeah Hand by Bowden
   tubes, which separate and guide every tendon end individually.
-- V1 ring–little coupling with crimped clamp and sliding loop: replaced in V2
+- Rebelia V1 ring–little coupling with crimped clamp and sliding loop: replaced in Yeah Hand
   by fixing the tendon ends of both fingers directly to the shared spool.
-- V1 one-piece spool: replaced in V2 by a two-part spool (flexion and
+- Rebelia V1 one-piece spool: replaced in Yeah Hand by a two-part spool (flexion and
   extension parts), which simplifies tendon installation and allows different
   diameters for the two tendon ends.
 
