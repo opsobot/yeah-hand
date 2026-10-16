@@ -5,7 +5,7 @@ an open source tendon-driven anthropomorphic hand usable as a
 robotic end effector and as an active prosthetic hand. It extends the
 disclosure of Rebelia V1 (https://github.com/opsobot/rebelia, OSHWA IT000021,
 Zenodo DOI 10.5281/zenodo.23394100; technical disclosure on Technical
-Disclosure Commons), whose content remains valid for Yeah Hand unless stated below.
+Disclosure Commons https://www.tdcommons.org/dpubs_series/12266), whose content remains valid for Yeah Hand unless stated below.
 
 Its purpose is to describe, as broadly as possible, the ways in which the
 concepts of this design can be implemented, modified and extended, so that all
