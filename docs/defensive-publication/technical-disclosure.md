@@ -5,6 +5,7 @@
 - **First public disclosure:** 26 November 2025 as Rebelia V2 (Yeah Hand v1.0), https://github.com/opsobot/rebelia/tree/V2 ; repository https://github.com/opsobot/yeah-hand and release v1.2 on 14 September 2026; assembly instructions Rev 1.8 on 5 October 2026
 - **Archived on Zenodo:** release v1.3 https://doi.org/10.5281/zenodo.23397456 ; CAD sources and STL files https://doi.org/10.5281/zenodo.23397779
 - **Previous version:** Rebelia V1, OSHWA IT000021, https://doi.org/10.5281/zenodo.23394100 , technical disclosure published on Technical Disclosure Commons, https://www.tdcommons.org/dpubs_series/12266
+- **Published on Technical Disclosure Commons:** https://www.tdcommons.org/dpubs_series/12267
 - **License of this document:** CC BY 4.0
 
 ---
