@@ -3,13 +3,24 @@ This file is part of Rebelia-Robotic-Firmware (Yeah Hand).
 Copyright (C) 2026 Vittorio Lumare
 License: GNU GPL v3 or later (see COPYING.txt).
 
-Bluetooth access control for RED Art. 3.3(d) / EN 18031-1:
+Access control for RED Art. 3.3(d) / EN 18031-1.
+
+Provisioning (manufacturer, wired USB, once per device):
+  FACTORY PROVISION <serial> <password>   accepted only while no password is stored
+  FACTORY STATUS                          serial, Bluetooth name, provisioned yes/no (never the password)
+  No command can read the password back. A lost password is recovered from the
+  manufacturer's records, or by erasing the flash and provisioning again.
+
+Until the device is provisioned, Bluetooth is not started and no command is accepted.
+
+Every command channel (Bluetooth SPP and USB serial) has its own session:
+  only "AUTH <password>" is accepted until the session is authenticated.
+Bluetooth:
   - SPP server restarted with authentication + encryption required
     (BluetoothSerial 3.3.x starts it with ESP_SPP_SEC_NONE)
   - new pairings accepted only inside a pairing window
-  - per-device password, required by the AUTH command before any other command
-  - brute-force protection with increasing lockout
-  - session closed when the Bluetooth link drops
+  - session closed when the link drops
+Brute-force protection: increasing lockout after repeated failures (shared by all channels).
 */
 
 #pragma once
@@ -22,28 +33,36 @@ namespace HandSecurity {
 // Pairing window length after power-on or after the PAIRING command.
 constexpr uint32_t PAIRING_WINDOW_MS = 120000;
 
-// Must be called BEFORE SerialBT.begin().
-void preBegin(BluetoothSerial &bt);
+struct Session {
+  Stream *out;
+  volatile bool authenticated;
+};
 
-// Must be called AFTER SerialBT.begin(). Loads or creates the device password.
-void begin();
+// Load serial number and password from NVS. Call first in setup().
+void loadProvisioning();
+
+bool isProvisioned();
+String serialNumber();
+
+// Bluetooth name: "YeahHand-<serial>" (or derived from the MAC if not provisioned).
+String deviceName();
+
+// Must be called BEFORE SerialBT.begin().
+void preBeginBluetooth(BluetoothSerial &bt);
 
 // Call every loop iteration. Manages the pairing window.
 void loop();
 
-// Unique Bluetooth name, derived from the Bluetooth MAC address.
-String deviceName();
-
-// True when the connected peer has sent a valid AUTH command in this session.
-bool isAuthenticated();
+Session &bluetoothSession();
+Session &usbSession();
 
 // True once after the Bluetooth link was closed (then resets).
-bool takeLinkClosedEvent();
+bool takeBluetoothLinkClosedEvent();
 
-// Handles AUTH, LOGOUT, SETPASS, PAIRING, UNPAIR. Returns true if the line was one of them.
-bool handleCommand(const String &line, Stream &out);
+// Handles AUTH, LOGOUT, SETPASS, PAIRING, UNPAIR ALL. Returns true if the line was one of them.
+bool handleCommand(const String &line, Session &session);
 
-// Factory commands on the wired USB serial port only (physical access).
-void handleUsbCommand(const String &line, Stream &out);
+// Handles FACTORY ... commands. Call only for the wired USB serial port. Returns true if handled.
+bool handleFactoryCommand(const String &line, Stream &out);
 
 }  // namespace HandSecurity

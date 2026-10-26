@@ -83,7 +83,10 @@ public:
   static GraspType getGraspTypeByString(const String& cmd);
   static String getGraspStringByType(FingersController::GraspType type);
 
-  FingersController(BluetoothSerial* _serialBT);
+  FingersController(Stream* output);
+
+  // Stream that receives messages (the channel of the command being executed).
+  void setOutput(Stream* output) { SerialBT = output; }
   ~FingersController();
 
   // Setup
@@ -240,7 +243,7 @@ public:
 
 private:
   SMS_STS st;
-  BluetoothSerial* SerialBT;
+  Stream* SerialBT;  // current output channel (Bluetooth or USB)
 
 private:
   // ** !! SET THE HAND SIDE BEFORE PROGRAMMING !! **

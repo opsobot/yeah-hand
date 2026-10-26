@@ -62,8 +62,8 @@ void FingersController::enableTorque(u8 ID, bool enable) {
   st.EnableTorque(ID, enable);
 }
 
-FingersController::FingersController(BluetoothSerial* _serialBT)
-  : SerialBT(_serialBT) {
+FingersController::FingersController(Stream* output)
+  : SerialBT(output) {
   Serial1.begin(1000000, SERIAL_8N1, S_RXD, S_TXD);
   st.pSerial = &Serial1;
   while (!Serial1) {

@@ -18,8 +18,8 @@ The License Notices
 Build environment used for the CE-assessed firmware:
   Arduino IDE, board package "esp32" by Espressif Systems 3.3.12 (do not update without re-testing).
 
-Command interface (Bluetooth Classic SPP, one command per line, '\n' or '\r\n'):
-  Without authentication only "AUTH <password>" is accepted.
+Command channels: Bluetooth Classic SPP and USB serial (115200), one command per line.
+  Each channel has its own session: until "AUTH <password>" succeeds no other command is accepted.
   Normal commands:   POWER | POWERSMALL | MONKEY | PINCH | <0..100> | ROS a b c d e
                      FI|FM|FR|FT|RT <0..100> | INFO <1..5> | POS | CONTROL
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
@@ -27,7 +27,8 @@ Command interface (Bluetooth Classic SPP, one command per line, '\n' or '\r\n'):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
                      LIM <1..5> <0..1000> | MOVE <1..5> <0..4095> | SERVICE OFF
   Every other line is rejected with "ERR" and causes no motion.
-USB serial (wired, physical access only): FACTORY INFO | FACTORY RESET
+Factory provisioning, USB serial only: FACTORY STATUS | FACTORY PROVISION <serial> <password>
+  (once per device; the password cannot be read back. Until provisioned, Bluetooth stays off.)
 */
 
 #include <SCServo.h>
@@ -64,16 +65,21 @@ void servoIdDiscovery() {
 
 void setup() {
   Serial.begin(115200);
+  Serial.setTimeout(50);
 
-  // Bluetooth: Wi-Fi is never initialised; BLE is released (unused interface).
-  HandSecurity::preBegin(SerialBT);
-  SerialBT.begin(HandSecurity::deviceName(), false, true);
-  SerialBT.setTimeout(50);
-  HandSecurity::begin();
+  HandSecurity::loadProvisioning();
+  if (HandSecurity::isProvisioned()) {
+    // Bluetooth: Wi-Fi is never initialised; BLE is released (unused interface).
+    HandSecurity::preBeginBluetooth(SerialBT);
+    SerialBT.begin(HandSecurity::deviceName(), false, true);
+    SerialBT.setTimeout(50);
+    Serial.printf("%s started.\n", HandSecurity::deviceName().c_str());
+  } else {
+    Serial.println("NOT PROVISIONED: Bluetooth off. Use FACTORY PROVISION <serial> <password>.");
+  }
 
-  Serial.printf("%s started. USB commands: FACTORY INFO | FACTORY RESET\n", HandSecurity::deviceName().c_str());
-
-  // Hand Calibration
+  // Hand Calibration (messages on USB: no client is connected yet)
+  fc.setOutput(&Serial);
   fc.calibrateHand();
 }
 
@@ -126,8 +132,10 @@ bool parseTwoArgs(const String &line, const char *prefix, int min1, int max1, in
   return parseIntStrict(args.substring(0, sep), min1, max1, a) && parseIntStrict(args.substring(sep + 1), min2, max2, b);
 }
 
+Stream *g_out = &Serial;  // channel of the command being executed
+
 void reply(const char *msg) {
-  SerialBT.println(msg);
+  g_out->println(msg);
 }
 
 // ---------- Commands ----------
@@ -167,16 +175,14 @@ bool processServiceCommand(const String &cmd) {
   return true;
 }
 
-void processStringCmd(const String &cmd) {
-  if (DEBUG) {
-    Serial.print("cmd: ");
-    Serial.println(cmd);
-  }
+void processStringCmd(const String &cmd, HandSecurity::Session &session) {
+  g_out = session.out;
+  fc.setOutput(session.out);
 
   // Authentication commands are always evaluated first.
-  if (HandSecurity::handleCommand(cmd, SerialBT)) return;
+  if (HandSecurity::handleCommand(cmd, session)) return;
 
-  if (!HandSecurity::isAuthenticated()) {
+  if (!session.authenticated) {
     reply("ERR AUTH REQUIRED");
     return;
   }
@@ -196,7 +202,7 @@ void processStringCmd(const String &cmd) {
   // Closure percentage: the whole line must be an integer 0..100
   if (parseIntStrict(cmd, 0, 100, a)) {
     g_newClosurePercent = a;
-    SerialBT.printf("OK CLOSURE %d\n", a);
+    g_out->printf("OK CLOSURE %d\n", a);
     return;
   }
 
@@ -233,11 +239,11 @@ void processStringCmd(const String &cmd) {
   if (parseOneArg(cmd, "INFO ", 1, 5, a)) {
     int IDX = fc.getVectorIndexByMotorID(a);
     if (IDX < 0 || IDX >= FingersController::SERVOS_SIZE) {
-      SerialBT.printf("ERR ID %d\n", a);
+      g_out->printf("ERR ID %d\n", a);
       return;
     }
     fc.printFeedback(a);
-    SerialBT.printf("Factor: %d\n", fc.getFactorFromPos(IDX, fc.readPos(a)));
+    g_out->printf("Factor: %d\n", fc.getFactorFromPos(IDX, fc.readPos(a)));
     return;
   }
   if (cmd == "POS") {
@@ -245,7 +251,7 @@ void processStringCmd(const String &cmd) {
     u8 IDs[IDN] = { 1, 2, 3, 4 };
     s16 pos[IDN];
     fc.readPositions(IDN, IDs, pos);
-    SerialBT.printf("Positions: %d %d %d %d\n", pos[0], pos[1], pos[2], pos[3]);
+    g_out->printf("Positions: %d %d %d %d\n", pos[0], pos[1], pos[2], pos[3]);
     return;
   }
   if (cmd == "CONTROL") {
@@ -278,7 +284,7 @@ void prepareGrasp() {
   g_preparation = false;
 }
 
-void sendRosFeedback() {
+void sendRosFeedback(Stream &out) {
   u8 factors[FingersController::SERVOS_SIZE];
   s16 load[FingersController::SERVOS_SIZE];
   u8 volt[FingersController::SERVOS_SIZE];
@@ -286,11 +292,11 @@ void sendRosFeedback() {
   s16 ampr[FingersController::SERVOS_SIZE];
   fc.readFactors(factors);
   fc.readFeedback(load, volt, temp, ampr);
-  SerialBT.printf("ROSPOS %d %d %d %d %d\n", factors[0], factors[1], factors[2], factors[3], factors[4]);
-  SerialBT.printf("ROSLOAD %d %d %d %d %d\n", load[0], load[1], load[2], load[3], load[4]);
-  SerialBT.printf("ROSVOLT %d %d %d %d %d\n", volt[0], volt[1], volt[2], volt[3], volt[4]);
-  SerialBT.printf("ROSTEMP %d %d %d %d %d\n", temp[0], temp[1], temp[2], temp[3], temp[4]);
-  SerialBT.printf("ROSAMPR %d %d %d %d %d\n", ampr[0], ampr[1], ampr[2], ampr[3], ampr[4]);
+  out.printf("ROSPOS %d %d %d %d %d\n", factors[0], factors[1], factors[2], factors[3], factors[4]);
+  out.printf("ROSLOAD %d %d %d %d %d\n", load[0], load[1], load[2], load[3], load[4]);
+  out.printf("ROSVOLT %d %d %d %d %d\n", volt[0], volt[1], volt[2], volt[3], volt[4]);
+  out.printf("ROSTEMP %d %d %d %d %d\n", temp[0], temp[1], temp[2], temp[3], temp[4]);
+  out.printf("ROSAMPR %d %d %d %d %d\n", ampr[0], ampr[1], ampr[2], ampr[3], ampr[4]);
 }
 
 // Reads one line, strips '\r' and surrounding spaces. Over-long lines are rejected.
@@ -304,26 +310,21 @@ bool readLine(Stream &in, String &line) {
   return line.length() > 0;
 }
 
-void smartReadSerialBT() {
+// Reads all pending lines of one channel. FACTORY commands are accepted only on USB.
+void readChannel(Stream &in, HandSecurity::Session &session, bool isUsb) {
   String lastPosCmd = "";
   String cmd;
-  while (SerialBT.available()) {
-    if (!readLine(SerialBT, cmd)) continue;
+  while (in.available()) {
+    if (!readLine(in, cmd)) continue;
+    if (isUsb && HandSecurity::handleFactoryCommand(cmd, in)) continue;
     if (cmd.startsWith("ROS ")) {
       lastPosCmd = cmd;  // only the most recent position command is executed
     } else {
-      processStringCmd(cmd);
+      processStringCmd(cmd, session);
     }
   }
   if (lastPosCmd.length() > 0) {
-    processStringCmd(lastPosCmd);
-  }
-}
-
-void readUsbSerial() {
-  String cmd;
-  while (Serial.available()) {
-    if (readLine(Serial, cmd)) HandSecurity::handleUsbCommand(cmd, Serial);
+    processStringCmd(lastPosCmd, session);
   }
 }
 
@@ -340,10 +341,10 @@ void enterSafeStateAfterLinkLoss() {
 
 void loop() {
   HandSecurity::loop();
-  if (HandSecurity::takeLinkClosedEvent()) enterSafeStateAfterLinkLoss();
+  if (HandSecurity::takeBluetoothLinkClosedEvent()) enterSafeStateAfterLinkLoss();
 
-  readUsbSerial();
-  smartReadSerialBT();
+  readChannel(Serial, HandSecurity::usbSession(), true);
+  if (HandSecurity::isProvisioned()) readChannel(SerialBT, HandSecurity::bluetoothSession(), false);
 
   if (gFsmState == FSM::Control) {
     if (g_new_grasp_type != g_grasp_type) {
@@ -351,7 +352,7 @@ void loop() {
       auto reduced_cmd = full_cmd.substring(0, full_cmd.length() - 2);
       String msg = reduced_cmd + " GRASP ENABLED";
 
-      SerialBT.println(msg);
+      g_out->println(msg);
 
       g_preparation = true;
       g_closure = false;
@@ -376,9 +377,9 @@ void loop() {
 
   } else if (gFsmState == FSM::TendonInstall) {
 
-    SerialBT.println("Tendon Install..");
+    g_out->println("Tendon Install..");
     fc.tendonInstallation();
-    SerialBT.println("Please install tendons.");
+    g_out->println("Please install tendons.");
 
   } else if (gFsmState == FSM::Testing) {
     // test();
@@ -386,11 +387,12 @@ void loop() {
     delay(10);
   }
 
-  // Telemetry only to an authenticated peer
+  // Telemetry only to authenticated sessions
   static auto t_prev_ros_feedback = millis();
   auto t_now_ros_feedback = millis();
   if (t_now_ros_feedback - t_prev_ros_feedback > 100) {
-    if (HandSecurity::isAuthenticated()) sendRosFeedback();
+    if (HandSecurity::bluetoothSession().authenticated) sendRosFeedback(SerialBT);
+    if (HandSecurity::usbSession().authenticated) sendRosFeedback(Serial);
     t_prev_ros_feedback = t_now_ros_feedback;
   }
 

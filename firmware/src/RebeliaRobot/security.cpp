@@ -10,7 +10,6 @@ License: GNU GPL v3 or later (see COPYING.txt).
 #include <esp_gap_bt_api.h>
 #include <esp_spp_api.h>
 #include <esp_mac.h>
-#include <esp_random.h>
 
 namespace HandSecurity {
 
@@ -18,25 +17,26 @@ namespace {
 
 constexpr const char *NVS_NAMESPACE = "yhsec";
 constexpr const char *NVS_KEY_PASSWORD = "pw";
-constexpr size_t GENERATED_PASSWORD_LEN = 12;  // 12 x log2(31) = about 59 bit of entropy
+constexpr const char *NVS_KEY_SERIAL = "sn";
 constexpr size_t MIN_PASSWORD_LEN = 10;
 constexpr size_t MAX_PASSWORD_LEN = 32;
-constexpr uint8_t FREE_ATTEMPTS = 5;            // failed attempts before lockout
-constexpr uint32_t BASE_LOCKOUT_MS = 30000;     // first lockout: 30 s, then doubled
-constexpr uint32_t MAX_LOCKOUT_MS = 900000;     // capped at 15 min
+constexpr size_t MAX_SERIAL_LEN = 16;
+constexpr uint8_t FREE_ATTEMPTS = 5;         // failed attempts before lockout
+constexpr uint32_t BASE_LOCKOUT_MS = 30000;  // first lockout: 30 s, then doubled
+constexpr uint32_t MAX_LOCKOUT_MS = 900000;  // capped at 15 min
 constexpr int MAX_TRUSTED_PEERS = 8;
-
-// Unambiguous alphabet (no 0/O, 1/I/L): 31 symbols.
-constexpr const char *PASSWORD_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
 BluetoothSerial *s_bt = nullptr;
 Preferences s_prefs;
 String s_password;
+String s_serial;
 
-volatile bool s_authenticated = false;
-volatile bool s_linkClosed = false;
+Session s_btSession{ nullptr, false };
+Session s_usbSession{ &Serial, false };
+
+volatile bool s_btLinkClosed = false;
 volatile bool s_serverSecured = false;
-volatile bool s_pairingOpen = true;
+volatile bool s_pairingOpen = false;
 uint32_t s_pairingOpenedAt = 0;
 
 uint8_t s_failedAttempts = 0;
@@ -45,15 +45,6 @@ uint32_t s_lockedUntil = 0;
 // Peers bonded when the pairing window closed. Outside the window only these may connect.
 esp_bd_addr_t s_trustedPeers[MAX_TRUSTED_PEERS];
 volatile int s_trustedCount = 0;
-
-String generatePassword() {
-  const size_t alphabetLen = strlen(PASSWORD_ALPHABET);
-  String pw;
-  for (size_t i = 0; i < GENERATED_PASSWORD_LEN; i++) {
-    pw += PASSWORD_ALPHABET[esp_random() % alphabetLen];
-  }
-  return pw;
-}
 
 // Comparison time does not depend on where the strings differ.
 bool constantTimeEquals(const String &a, const String &b) {
@@ -67,7 +58,7 @@ bool constantTimeEquals(const String &a, const String &b) {
   return diff == 0;
 }
 
-bool isValidNewPassword(const String &pw) {
+bool isValidPassword(const String &pw) {
   if (pw.length() < MIN_PASSWORD_LEN || pw.length() > MAX_PASSWORD_LEN) return false;
   for (size_t i = 0; i < pw.length(); i++) {
     char c = pw[i];
@@ -76,9 +67,13 @@ bool isValidNewPassword(const String &pw) {
   return true;
 }
 
-void storePassword(const String &pw) {
-  s_prefs.putString(NVS_KEY_PASSWORD, pw);
-  s_password = pw;
+bool isValidSerial(const String &sn) {
+  if (sn.length() == 0 || sn.length() > MAX_SERIAL_LEN) return false;
+  for (size_t i = 0; i < sn.length(); i++) {
+    char c = sn[i];
+    if (!isAlphaNumeric(c) && c != '-') return false;
+  }
+  return true;
 }
 
 void snapshotTrustedPeers() {
@@ -135,7 +130,7 @@ void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
       break;
 
     case ESP_SPP_SRV_OPEN_EVT:
-      s_authenticated = false;  // every connection starts unauthenticated
+      s_btSession.authenticated = false;  // every connection starts unauthenticated
       if (!s_pairingOpen && !isTrustedPeer(param->srv_open.rem_bda)) {
         // Device bonded outside the pairing window: refuse it and forget the bond.
         esp_spp_disconnect(param->srv_open.handle);
@@ -144,8 +139,8 @@ void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
       break;
 
     case ESP_SPP_CLOSE_EVT:
-      s_authenticated = false;
-      s_linkClosed = true;
+      s_btSession.authenticated = false;
+      s_btLinkClosed = true;
       break;
 
     default:
@@ -155,34 +150,22 @@ void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
 
 }  // namespace
 
-void preBegin(BluetoothSerial &bt) {
-  s_bt = &bt;
-  bt.enableSSP(false, false);  // Secure Simple Pairing, no display / no keyboard on the hand
-  bt.onConfirmRequest([](uint32_t) {
-    // Accept a new pairing only while the pairing window is open.
-    s_bt->confirmReply(s_pairingOpen);
-  });
-  bt.register_callback(sppCallback);
-}
-
-void begin() {
+void loadProvisioning() {
   s_prefs.begin(NVS_NAMESPACE, false);
   s_password = s_prefs.getString(NVS_KEY_PASSWORD, "");
-  if (s_password.length() == 0) {
-    // First boot: unique random password (hardware RNG, radio already active).
-    storePassword(generatePassword());
-  }
-  s_pairingOpenedAt = millis();
-  s_pairingOpen = true;
+  s_serial = s_prefs.getString(NVS_KEY_SERIAL, "");
 }
 
-void loop() {
-  if (s_pairingOpen && millis() - s_pairingOpenedAt > PAIRING_WINDOW_MS) {
-    closePairingWindow();
-  }
+bool isProvisioned() {
+  return s_password.length() > 0;
+}
+
+String serialNumber() {
+  return s_serial;
 }
 
 String deviceName() {
+  if (s_serial.length() > 0) return "YeahHand-" + s_serial;
   uint8_t mac[6];
   esp_read_mac(mac, ESP_MAC_BT);
   char name[20];
@@ -190,32 +173,61 @@ String deviceName() {
   return String(name);
 }
 
-bool isAuthenticated() {
-  return s_authenticated;
+void preBeginBluetooth(BluetoothSerial &bt) {
+  s_bt = &bt;
+  s_btSession.out = &bt;
+  bt.enableSSP(false, false);  // Secure Simple Pairing, no display / no keyboard on the hand
+  bt.onConfirmRequest([](uint32_t) {
+    // Accept a new pairing only while the pairing window is open.
+    s_bt->confirmReply(s_pairingOpen);
+  });
+  bt.register_callback(sppCallback);
+  s_pairingOpen = true;  // window opens at power-on
+  s_pairingOpenedAt = millis();
 }
 
-bool takeLinkClosedEvent() {
-  if (s_linkClosed) {
-    s_linkClosed = false;
+void loop() {
+  if (s_bt && s_pairingOpen && millis() - s_pairingOpenedAt > PAIRING_WINDOW_MS) {
+    closePairingWindow();
+  }
+}
+
+Session &bluetoothSession() {
+  return s_btSession;
+}
+
+Session &usbSession() {
+  return s_usbSession;
+}
+
+bool takeBluetoothLinkClosedEvent() {
+  if (s_btLinkClosed) {
+    s_btLinkClosed = false;
     return true;
   }
   return false;
 }
 
-bool handleCommand(const String &line, Stream &out) {
+bool handleCommand(const String &line, Session &session) {
+  Stream &out = *session.out;
+
   if (line.startsWith("AUTH ")) {
+    if (!isProvisioned()) {
+      out.println("ERR NOT PROVISIONED");
+      return true;
+    }
     uint32_t wait = lockoutRemainingMs();
     if (wait > 0) {
       out.printf("ERR LOCKED %lu s\n", (unsigned long)((wait + 999) / 1000));
       return true;
     }
     if (constantTimeEquals(line.substring(5), s_password)) {
-      s_authenticated = true;
+      session.authenticated = true;
       s_failedAttempts = 0;
       s_lockedUntil = 0;
       out.println("OK AUTH");
     } else {
-      s_authenticated = false;
+      session.authenticated = false;
       registerFailure();
       out.println("ERR AUTH");
     }
@@ -223,13 +235,13 @@ bool handleCommand(const String &line, Stream &out) {
   }
 
   if (line == "LOGOUT") {
-    s_authenticated = false;
+    session.authenticated = false;
     out.println("OK LOGOUT");
     return true;
   }
 
   if (line.startsWith("SETPASS ")) {
-    if (!s_authenticated) {
+    if (!session.authenticated) {
       out.println("ERR AUTH REQUIRED");
       return true;
     }
@@ -244,54 +256,87 @@ bool handleCommand(const String &line, Stream &out) {
     if (!constantTimeEquals(oldPw, s_password)) {
       registerFailure();
       out.println("ERR AUTH");
-    } else if (!isValidNewPassword(newPw)) {
+    } else if (!isValidPassword(newPw)) {
       out.printf("ERR PASSWORD: %u-%u printable characters, no spaces\n", (unsigned)MIN_PASSWORD_LEN, (unsigned)MAX_PASSWORD_LEN);
     } else {
-      storePassword(newPw);
+      s_prefs.putString(NVS_KEY_PASSWORD, newPw);
+      s_password = newPw;
       out.println("OK SETPASS");
     }
     return true;
   }
 
   if (line == "PAIRING") {
-    if (!s_authenticated) {
+    if (!session.authenticated) {
       out.println("ERR AUTH REQUIRED");
-      return true;
+    } else if (!s_bt) {
+      out.println("ERR BLUETOOTH OFF");
+    } else {
+      openPairingWindow();
+      out.printf("OK PAIRING %lu s\n", (unsigned long)(PAIRING_WINDOW_MS / 1000));
     }
-    openPairingWindow();
-    out.printf("OK PAIRING %lu s\n", (unsigned long)(PAIRING_WINDOW_MS / 1000));
     return true;
   }
 
   if (line == "UNPAIR ALL") {
-    if (!s_authenticated) {
+    if (!session.authenticated) {
       out.println("ERR AUTH REQUIRED");
-      return true;
+    } else if (!s_bt) {
+      out.println("ERR BLUETOOTH OFF");
+    } else {
+      out.println("OK UNPAIR ALL");
+      s_trustedCount = 0;
+      s_bt->deleteAllBondedDevices();
     }
-    out.println("OK UNPAIR ALL (connection will close)");
-    s_trustedCount = 0;
-    s_bt->deleteAllBondedDevices();
     return true;
   }
 
   return false;
 }
 
-void handleUsbCommand(const String &line, Stream &out) {
-  if (line == "FACTORY INFO") {
-    out.printf("Device name: %s\n", deviceName().c_str());
-    out.printf("Password:    %s\n", s_password.c_str());
-    out.printf("Bonded peers: %d\n", esp_bt_gap_get_bond_device_num());
-  } else if (line == "FACTORY RESET") {
-    storePassword(generatePassword());
-    s_trustedCount = 0;
-    s_bt->deleteAllBondedDevices();
-    s_authenticated = false;
-    out.println("OK FACTORY RESET: new password generated, all pairings deleted");
-    out.printf("Password:    %s\n", s_password.c_str());
-  } else if (line.length() > 0) {
-    out.println("USB commands: FACTORY INFO | FACTORY RESET");
+bool handleFactoryCommand(const String &line, Stream &out) {
+  if (!line.startsWith("FACTORY")) return false;
+
+  if (line == "FACTORY STATUS") {
+    out.printf("FACTORY STATUS provisioned=%s serial=%s name=%s\n", isProvisioned() ? "yes" : "no",
+               s_serial.length() ? s_serial.c_str() : "-", deviceName().c_str());
+    return true;
   }
+
+  if (line.startsWith("FACTORY PROVISION ")) {
+    if (isProvisioned()) {
+      out.println("ERR ALREADY PROVISIONED (erase the flash to provision again)");
+      return true;
+    }
+    String args = line.substring(18);
+    int sep = args.indexOf(' ');
+    if (sep < 0) {
+      out.println("ERR USAGE: FACTORY PROVISION <serial> <password>");
+      return true;
+    }
+    String sn = args.substring(0, sep);
+    String pw = args.substring(sep + 1);
+    if (!isValidSerial(sn)) {
+      out.printf("ERR SERIAL: 1-%u characters A-Z a-z 0-9 -\n", (unsigned)MAX_SERIAL_LEN);
+      return true;
+    }
+    if (!isValidPassword(pw)) {
+      out.printf("ERR PASSWORD: %u-%u printable characters, no spaces\n", (unsigned)MIN_PASSWORD_LEN, (unsigned)MAX_PASSWORD_LEN);
+      return true;
+    }
+    s_prefs.putString(NVS_KEY_SERIAL, sn);
+    s_prefs.putString(NVS_KEY_PASSWORD, pw);
+    s_serial = sn;
+    s_password = pw;
+    out.printf("OK PROVISIONED serial=%s name=%s, restarting\n", sn.c_str(), deviceName().c_str());
+    out.flush();
+    delay(200);
+    ESP.restart();
+    return true;
+  }
+
+  out.println("ERR FACTORY: FACTORY STATUS | FACTORY PROVISION <serial> <password>");
+  return true;
 }
 
 }  // namespace HandSecurity
