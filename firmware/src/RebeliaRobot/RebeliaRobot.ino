@@ -11,23 +11,35 @@ The License Notices
 
     Rebelia-Robotic-Firmware is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License along with Rebelia-Hand-Firmware. If not, see <https://www.gnu.org/licenses/>. 
+    You should have received a copy of the GNU General Public License along with Rebelia-Hand-Firmware. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/*
+Build environment used for the CE-assessed firmware:
+  Arduino IDE, board package "esp32" by Espressif Systems 3.3.12 (do not update without re-testing).
+
+Command interface (Bluetooth Classic SPP, one command per line, '\n' or '\r\n'):
+  Without authentication only "AUTH <password>" is accepted.
+  Normal commands:   POWER | POWERSMALL | MONKEY | PINCH | <0..100> | ROS a b c d e
+                     FI|FM|FR|FT|RT <0..100> | INFO <1..5> | POS | CONTROL
+                     LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
+  Service commands (only after SERVICE ON):
+                     INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
+                     LIM <1..5> <0..1000> | MOVE <1..5> <0..4095> | SERVICE OFF
+  Every other line is rejected with "ERR" and causes no motion.
+USB serial (wired, physical access only): FACTORY INFO | FACTORY RESET
 */
 
 #include <SCServo.h>
-#include <BTAddress.h>
-#include <BTAdvertisedDevice.h>
-#include <BTScan.h>
 #include <BluetoothSerial.h>
 #include "fingers_controller.h"
+#include "security.h"
 
 #define S_RXD 18
 #define S_TXD 19
-#define BLUETOOTH true
 #define DEBUG false
 
-static const bool SHOW_FEEDBACK = false;
-static const bool CALIBRATE_CENTER = false;
+static const size_t MAX_LINE_LEN = 64;
 
 BluetoothSerial SerialBT;
 SMS_STS st;
@@ -52,10 +64,14 @@ void servoIdDiscovery() {
 
 void setup() {
   Serial.begin(115200);
-  SerialBT.begin("YeahHand");
+
+  // Bluetooth: Wi-Fi is never initialised; BLE is released (unused interface).
+  HandSecurity::preBegin(SerialBT);
+  SerialBT.begin(HandSecurity::deviceName(), false, true);
   SerialBT.setTimeout(50);
-  //delay(10000);
-  SerialBT.println("Yeah Hand Started!");
+  HandSecurity::begin();
+
+  Serial.printf("%s started. USB commands: FACTORY INFO | FACTORY RESET\n", HandSecurity::deviceName().c_str());
 
   // Hand Calibration
   fc.calibrateHand();
@@ -67,7 +83,7 @@ int g_closurePercent = 0;
 int g_newClosurePercent = 0;
 bool g_preparation = true;
 bool g_closure = false;
-bool g_motor_enabled[5] = { true, true, true, true, true };
+bool g_serviceMode = false;
 enum class FSM {
   Control,
   TendonInstall,
@@ -76,110 +92,182 @@ enum class FSM {
 };
 FSM gFsmState = FSM::Control;
 
-void processStringCmd(const String& cmd);
-void prepareGrasp();
-void limitLoad();
-int sign(int val);
+// ---------- Strict argument parsing ----------
 
-int sign(int val) {
-  return val / abs(val);
+// Whole string must be an integer within [minV, maxV].
+bool parseIntStrict(const String &s, int minV, int maxV, int &value) {
+  if (s.length() == 0 || s.length() > 6) return false;
+  size_t i = 0;
+  if (s[0] == '-' || s[0] == '+') {
+    if (s.length() == 1) return false;
+    i = 1;
+  }
+  for (; i < s.length(); i++) {
+    if (!isDigit(s[i])) return false;
+  }
+  long v = s.toInt();
+  if (v < minV || v > maxV) return false;
+  value = (int)v;
+  return true;
 }
 
-int gMaxOverLoadCount = 40;
-int gOverLoadCounters[5];  // 0: index, ..
+// "<prefix><int>" with the int in range.
+bool parseOneArg(const String &line, const char *prefix, int minV, int maxV, int &value) {
+  if (!line.startsWith(prefix)) return false;
+  return parseIntStrict(line.substring(strlen(prefix)), minV, maxV, value);
+}
 
-void processStringCmd(const String& cmd) {
+// "<prefix><int> <int>" with both ints in range.
+bool parseTwoArgs(const String &line, const char *prefix, int min1, int max1, int min2, int max2, int &a, int &b) {
+  if (!line.startsWith(prefix)) return false;
+  String args = line.substring(strlen(prefix));
+  int sep = args.indexOf(' ');
+  if (sep < 0) return false;
+  return parseIntStrict(args.substring(0, sep), min1, max1, a) && parseIntStrict(args.substring(sep + 1), min2, max2, b);
+}
+
+void reply(const char *msg) {
+  SerialBT.println(msg);
+}
+
+// ---------- Commands ----------
+
+void moveFinger(FingersController::VectorIdx idx, int factor) {
+  fc.moveUntilLoadLimitHit(idx, factor, 3073, 200);
+}
+
+bool processServiceCommand(const String &cmd) {
+  int a, b;
+  if (cmd == "SERVICE OFF") {
+    g_serviceMode = false;
+    gFsmState = FSM::Control;
+    reply("OK SERVICE OFF");
+  } else if (cmd == "INSTALL") {
+    gFsmState = FSM::TendonInstall;
+    reply("OK INSTALL");
+  } else if (cmd == "TEST") {
+    gFsmState = FSM::Testing;
+    reply("OK TEST");
+  } else if (cmd == "CALIBRATE") {
+    fc.calibrateHand();
+    reply("OK CALIBRATE");
+  } else if (parseOneArg(cmd, "SETCENTER ", 1, 5, a)) {
+    fc.setCenterOfRange(a);
+  } else if (parseOneArg(cmd, "SETPINCH ", -40, 40, a)) {
+    fc.setPinchOffset(a);
+  } else if (parseTwoArgs(cmd, "LIM ", 1, 5, 0, 1000, a, b)) {
+    fc.setMaxTorque(a, b);
+    reply("OK LIM");
+  } else if (parseTwoArgs(cmd, "MOVE ", 1, 5, 0, 4095, a, b)) {
+    fc.moveUntilLoadLimitHit(a, b, 2000, 200);
+    reply("OK MOVE");
+  } else {
+    return false;
+  }
+  return true;
+}
+
+void processStringCmd(const String &cmd) {
   if (DEBUG) {
-    if (BLUETOOTH) SerialBT.printf("string: %s \n", cmd.c_str());
-    Serial.print("string: ");
-    Serial.println(cmd.c_str());
+    Serial.print("cmd: ");
+    Serial.println(cmd);
   }
 
-  FingersController::GraspType graspType = FingersController::getGraspTypeByString(cmd);
-  if (graspType < FingersController::GraspType::_MAX) {
-    g_new_grasp_type = graspType;
-    if (BLUETOOTH) SerialBT.println("Grasp by Serial Cmd");
-  } else {  // Not a Grasp command..
-    if (cmd.substring(0, 4) == "ROS ") {
-      int v[5];
-      int n = sscanf(cmd.c_str(), "ROS %d %d %d %d %d",
-                     &v[0], &v[1], &v[2], &v[3], &v[4]);
-      if (n != 5) {
-        // Incomplete line: log and discard
-        if (BLUETOOTH && DEBUG) SerialBT.printf("BAD ROS CMD (tokens=%d): %s\n", n, cmd.c_str());
-      } else {
-        // range check
-        for (int i = 0; i < 5; ++i) {
-          if (v[i] < 0 || v[i] > 100) {
-            if (BLUETOOTH && DEBUG) SerialBT.printf("OUT OF RANGE ROS CMD: %s\n", cmd.c_str());
-          } else {
-            const u8 IDN = 5;
-            FingersController::VectorIdx IDXs[IDN] = { FingersController::VectorIdx::Index, FingersController::VectorIdx::Middle, FingersController::VectorIdx::Ring, FingersController::VectorIdx::Thumb, FingersController::VectorIdx::ThumbRot };
-            u8 Factor[IDN] = { v[0], v[1], v[2], v[3], v[4] };
-            u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
-            u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
-            fc.moveUntilLoadLimitHit(IDN, IDXs, Factor, Speed, Acc); // sync
-            //fc.move(IDN, IDXs, Factor, Speed, Acc); // async
-          }
-        }
-      }
-    } else if (cmd.substring(0, 7) == "INSTALL") {
-      gFsmState = FSM::TendonInstall;
-    } else if (cmd == "TEST\r\n") {
-      gFsmState = FSM::Testing;
-    } else if (cmd.substring(0, 7) == "CONTROL") {
-      gFsmState = FSM::Control;
-    } else if (cmd.substring(0, 3) == "LIM") {  // Comando esempio: LIM 1 125
-      auto id = cmd.substring(4, 5).toInt();
-      auto val = cmd.substring(6, 9).toInt();
-      fc.setMaxTorque(id, val);
-    } else if (cmd.substring(0, 5) == "INFO ") {
-      auto ID = cmd.substring(5, cmd.lastIndexOf('\r')).toInt();
-      auto IDX = fc.getVectorIndexByMotorID(ID);
-      if (IDX < 0 || IDX > FingersController::SERVOS_SIZE) {
-        SerialBT.printf("Wrong ID: %d, ID\n");
-        return;
-      }
-      fc.printFeedback(ID);
-      SerialBT.printf("Factor: %d\n", fc.getFactorFromPos(IDX, fc.readPos(ID)));
-    } else if (cmd.substring(0, 3) == "POS") {
-      u8 IDN = 4;
-      u8 IDs[IDN] = { 1, 2, 3, 4 };
-      s16 pos[IDN];
-      fc.readPositions(IDN, IDs, pos);
-      SerialBT.printf("Positions: %d %d %d %d\n", pos[0], pos[1], pos[2], pos[3]);
-    } else if (cmd.substring(0, 5) == "MOVE ") {
-      int ID = cmd.substring(5, 6).toInt();
-      int pos = cmd.substring(6, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(ID, pos, 2000, 200);
-    } else if (cmd.substring(0, 3) == "RT ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::ThumbRot, factor, 3073, 200);
-    } else if (cmd.substring(0, 3) == "FI ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Index, factor, 3073, 200);
-    } else if (cmd.substring(0, 3) == "FM ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Middle, factor, 3073, 200);
-    } else if (cmd.substring(0, 3) == "FR ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Ring, factor, 3073, 200);
-    } else if (cmd.substring(0, 3) == "FT ") {
-      int factor = cmd.substring(3, cmd.lastIndexOf('\r')).toInt();
-      fc.moveUntilLoadLimitHit(FingersController::VectorIdx::Thumb, factor, 3073, 200);
-    } else if (cmd.substring(0, 10) == "SETCENTER ") {
-      int id = cmd.substring(10, 11).toInt();
-      fc.setCenterOfRange(id);
-    } else if (cmd.substring(0, 9) == "CALIBRATE") {
-      fc.calibrateHand();
-    } else if (cmd.substring(0, 9) == "SETPINCH ") {
-      int offset = cmd.substring(9, cmd.lastIndexOf('\r')).toInt();
-      fc.setPinchOffset(offset);
-    } else {
-      g_newClosurePercent = cmd.toInt();
-      if (BLUETOOTH) SerialBT.printf("ClosurePercent by Serial Cmd: %d\n", g_newClosurePercent);
-    }
+  // Authentication commands are always evaluated first.
+  if (HandSecurity::handleCommand(cmd, SerialBT)) return;
+
+  if (!HandSecurity::isAuthenticated()) {
+    reply("ERR AUTH REQUIRED");
+    return;
   }
+
+  int a;
+
+  // Grasp selection (exact match)
+  if (cmd == "POWER" || cmd == "POWERSMALL" || cmd == "MONKEY" || cmd == "PINCH") {
+    g_new_grasp_type = cmd == "POWER"        ? FingersController::GraspType::POWER
+                       : cmd == "POWERSMALL" ? FingersController::GraspType::POWERSMALL
+                       : cmd == "MONKEY"     ? FingersController::GraspType::MONKEY
+                                             : FingersController::GraspType::PINCH;
+    reply("OK GRASP");
+    return;
+  }
+
+  // Closure percentage: the whole line must be an integer 0..100
+  if (parseIntStrict(cmd, 0, 100, a)) {
+    g_newClosurePercent = a;
+    SerialBT.printf("OK CLOSURE %d\n", a);
+    return;
+  }
+
+  // ROS a b c d e: all five values validated before any motion
+  if (cmd.startsWith("ROS ")) {
+    int v[5];
+    int consumed = 0;
+    int n = sscanf(cmd.c_str(), "ROS %d %d %d %d %d%n", &v[0], &v[1], &v[2], &v[3], &v[4], &consumed);
+    bool valid = (n == 5) && ((size_t)consumed == cmd.length());
+    for (int i = 0; valid && i < 5; ++i) {
+      if (v[i] < 0 || v[i] > 100) valid = false;
+    }
+    if (!valid) {
+      reply("ERR ROS");
+      return;
+    }
+    const u8 IDN = 5;
+    FingersController::VectorIdx IDXs[IDN] = { FingersController::VectorIdx::Index, FingersController::VectorIdx::Middle, FingersController::VectorIdx::Ring, FingersController::VectorIdx::Thumb, FingersController::VectorIdx::ThumbRot };
+    u8 Factor[IDN] = { (u8)v[0], (u8)v[1], (u8)v[2], (u8)v[3], (u8)v[4] };
+    u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
+    u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
+    fc.moveUntilLoadLimitHit(IDN, IDXs, Factor, Speed, Acc);  // sync
+    return;
+  }
+
+  // Single finger moves (factor 0..100)
+  if (parseOneArg(cmd, "FI ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::Index, a); return; }
+  if (parseOneArg(cmd, "FM ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::Middle, a); return; }
+  if (parseOneArg(cmd, "FR ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::Ring, a); return; }
+  if (parseOneArg(cmd, "FT ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::Thumb, a); return; }
+  if (parseOneArg(cmd, "RT ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::ThumbRot, a); return; }
+
+  // Read-only commands
+  if (parseOneArg(cmd, "INFO ", 1, 5, a)) {
+    int IDX = fc.getVectorIndexByMotorID(a);
+    if (IDX < 0 || IDX >= FingersController::SERVOS_SIZE) {
+      SerialBT.printf("ERR ID %d\n", a);
+      return;
+    }
+    fc.printFeedback(a);
+    SerialBT.printf("Factor: %d\n", fc.getFactorFromPos(IDX, fc.readPos(a)));
+    return;
+  }
+  if (cmd == "POS") {
+    u8 IDN = 4;
+    u8 IDs[IDN] = { 1, 2, 3, 4 };
+    s16 pos[IDN];
+    fc.readPositions(IDN, IDs, pos);
+    SerialBT.printf("Positions: %d %d %d %d\n", pos[0], pos[1], pos[2], pos[3]);
+    return;
+  }
+  if (cmd == "CONTROL") {
+    gFsmState = FSM::Control;
+    reply("OK CONTROL");
+    return;
+  }
+  if (cmd == "HELP") {
+    reply("Commands: POWER|POWERSMALL|MONKEY|PINCH, 0..100, ROS a b c d e, FI|FM|FR|FT|RT n, INFO id, POS, CONTROL,");
+    reply("LOGOUT, SETPASS old new, PAIRING, UNPAIR ALL, SERVICE ON");
+    return;
+  }
+
+  // Service mode: calibration, tendon installation, raw positions, torque limits
+  if (cmd == "SERVICE ON") {
+    g_serviceMode = true;
+    reply("OK SERVICE ON");
+    return;
+  }
+  if (g_serviceMode && processServiceCommand(cmd)) return;
+
+  reply(g_serviceMode ? "ERR UNKNOWN" : "ERR UNKNOWN (service commands need SERVICE ON)");
 }
 
 void prepareGrasp() {
@@ -205,13 +293,24 @@ void sendRosFeedback() {
   SerialBT.printf("ROSAMPR %d %d %d %d %d\n", ampr[0], ampr[1], ampr[2], ampr[3], ampr[4]);
 }
 
+// Reads one line, strips '\r' and surrounding spaces. Over-long lines are rejected.
+bool readLine(Stream &in, String &line) {
+  line = in.readStringUntil('\n');
+  line.trim();
+  if (line.length() > MAX_LINE_LEN) {
+    line = "";
+    return false;
+  }
+  return line.length() > 0;
+}
+
 void smartReadSerialBT() {
   String lastPosCmd = "";
+  String cmd;
   while (SerialBT.available()) {
-    String cmd = SerialBT.readStringUntil('\n');
-    if (cmd.length() == 0) continue;
-    if (cmd.substring(0, 4) == "ROS ") {
-      lastPosCmd = cmd;
+    if (!readLine(SerialBT, cmd)) continue;
+    if (cmd.startsWith("ROS ")) {
+      lastPosCmd = cmd;  // only the most recent position command is executed
     } else {
       processStringCmd(cmd);
     }
@@ -221,9 +320,29 @@ void smartReadSerialBT() {
   }
 }
 
-void loop() {
-  auto t0 = millis();
+void readUsbSerial() {
+  String cmd;
+  while (Serial.available()) {
+    if (readLine(Serial, cmd)) HandSecurity::handleUsbCommand(cmd, Serial);
+  }
+}
 
+// Bluetooth link lost: end the session and the service mode, start no new motion.
+// The hand holds its current position (an object being grasped is not released).
+void enterSafeStateAfterLinkLoss() {
+  g_serviceMode = false;
+  gFsmState = FSM::Control;
+  g_closure = false;
+  g_preparation = false;
+  g_new_grasp_type = g_grasp_type;
+  g_newClosurePercent = g_closurePercent;
+}
+
+void loop() {
+  HandSecurity::loop();
+  if (HandSecurity::takeLinkClosedEvent()) enterSafeStateAfterLinkLoss();
+
+  readUsbSerial();
   smartReadSerialBT();
 
   if (gFsmState == FSM::Control) {
@@ -232,7 +351,7 @@ void loop() {
       auto reduced_cmd = full_cmd.substring(0, full_cmd.length() - 2);
       String msg = reduced_cmd + " GRASP ENABLED";
 
-      if (BLUETOOTH) SerialBT.println(msg);
+      SerialBT.println(msg);
 
       g_preparation = true;
       g_closure = false;
@@ -267,10 +386,11 @@ void loop() {
     delay(10);
   }
 
+  // Telemetry only to an authenticated peer
   static auto t_prev_ros_feedback = millis();
   auto t_now_ros_feedback = millis();
   if (t_now_ros_feedback - t_prev_ros_feedback > 100) {
-    sendRosFeedback();
+    if (HandSecurity::isAuthenticated()) sendRosFeedback();
     t_prev_ros_feedback = t_now_ros_feedback;
   }
 
@@ -284,6 +404,5 @@ void loop() {
   long t_cur_loop = micros();
   while (micros() - t_prev_loop < 100)
     ;
-  long t_loop_delta = micros() - t_prev_loop;
   t_prev_loop = t_cur_loop;
 }
