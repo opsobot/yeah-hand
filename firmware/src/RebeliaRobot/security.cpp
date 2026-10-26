@@ -124,6 +124,8 @@ void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
       // authentication (pairing) and encryption. The second START event is ignored.
       if (!s_serverSecured && param->start.status == ESP_SPP_SUCCESS) {
         s_serverSecured = true;
+        // Refuse encryption keys shorter than 128 bit (KNOB attack, CVE-2019-9506).
+        esp_bt_gap_set_min_enc_key_size(16);
         esp_spp_stop_srv_scn(param->start.scn);
         esp_spp_start_srv(ESP_SPP_SEC_AUTHENTICATE | ESP_SPP_SEC_ENCRYPT, ESP_SPP_ROLE_SLAVE, 0, "ESP32SPP");
       }
