@@ -77,7 +77,8 @@ void setup() {
   } else {
     // Not provisioned: no radio, no calibration, no motion. Only FACTORY commands
     // on USB are served (see loop), so provisioning works even without 12 V.
-    Serial.println("NOT PROVISIONED: Bluetooth off. Use FACTORY PROVISION <serial> <L|R> <password>.");
+    Serial.println("Bluetooth off.");
+    printProvisioningHelp(Serial);
     return;
   }
 
@@ -322,12 +323,27 @@ bool readLine(Stream &in, String &line) {
 }
 
 // Reads all pending lines of one channel. FACTORY commands are accepted only on USB.
+// Shown on USB while the hand is not provisioned (manufacturer setup, done once).
+void printProvisioningHelp(Stream &out) {
+  out.println("NOT PROVISIONED - manufacturer setup, one time only:");
+  out.println("  FACTORY PROVISION <serial> <L|R> <password>");
+  out.println("  serial:   year-number as on the nameplate, e.g. 2026-00001");
+  out.println("  L|R:      model, Yeah Hand L (left) or Yeah Hand R (right)");
+  out.println("  password: 10-32 characters, no spaces (use a random one, write it on the label)");
+  out.println("  example:  FACTORY PROVISION 2026-00001 L <random password>");
+  out.println("  FACTORY STATUS shows the current state.");
+}
+
 void readChannel(Stream &in, HandSecurity::Session &session, bool isUsb) {
   String lastPosCmd = "";
   String cmd;
   while (in.available()) {
     if (!readLine(in, cmd)) continue;
     if (isUsb && HandSecurity::handleFactoryCommand(cmd, in)) continue;
+    if (!HandSecurity::isProvisioned()) {
+      printProvisioningHelp(in);  // any other line on an unprovisioned hand
+      continue;
+    }
     if (!isUsb && cmd.startsWith("FACTORY")) {
       session.out->println("ERR FACTORY COMMANDS ONLY ON USB");
       continue;
