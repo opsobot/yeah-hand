@@ -14,6 +14,8 @@ Usage:
   pip install pyserial
   python emc_endurance_test.py --port /dev/rfcomm0 --password XXXXXXXXXXXXXX --hours 8 --label "continuo 8h"
   (Windows: --port COM7, the "outgoing" Bluetooth COM port of the paired hand)
+Every --temp-every minutes it also reads the internal temperature of the five
+servos (command INFO) and logs it: useful for the overheating test.
 Stop early with Ctrl+C: the summary is printed anyway.
 """
 
@@ -55,6 +57,22 @@ class Hand:
                 pass
         self.ser = None
 
+    def servo_temperature(self, servo_id: int):
+        """Internal temperature (deg C) reported by one servo via INFO, or None."""
+        self.ser.reset_input_buffer()
+        self.ser.write(f"INFO {servo_id}\n".encode("ascii"))
+        self.ser.flush()
+        deadline = time.time() + ACK_TIMEOUT_S
+        while time.time() < deadline:
+            raw = self.ser.readline()
+            text = raw.decode("ascii", errors="replace").strip() if raw else ""
+            if text.startswith(f"ID:{servo_id},"):
+                for part in text.split(","):
+                    part = part.strip()
+                    if part.startswith("T:"):
+                        return int(part[2:])
+        return None
+
     def command(self, line: str, expect: str) -> bool:
         """Send a line, wait for a reply starting with `expect`."""
         self.ser.reset_input_buffer()
@@ -76,12 +94,15 @@ def main() -> int:
     ap.add_argument("--period", type=float, default=2.0, help="seconds between open and close")
     ap.add_argument("--closure", type=int, default=100, help="closure percent when closed (0-100)")
     ap.add_argument("--label", default="", help="test name written in the log, e.g. 'distanza 10 m'")
+    ap.add_argument("--temp-every", type=float, default=5.0, help="minutes between servo temperature readings (0 = off)")
     ap.add_argument("--log", default=None, help="CSV log file (default: emc_test_<timestamp>.csv)")
     args = ap.parse_args()
 
     log_name = args.log or f"emc_test_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
     hand = Hand(args.port, args.password)
     stats = {"commands": 0, "missed_acks": 0, "link_losses": 0, "longest_outage_s": 0.0}
+    max_temp = {}  # servo id -> highest temperature seen
+    next_temp = time.time()
     start = time.time()
     end = start + args.hours * 3600
 
@@ -122,6 +143,20 @@ def main() -> int:
                 else:
                     closed = not closed
 
+                if args.temp_every > 0 and time.time() >= next_temp:
+                    next_temp = time.time() + args.temp_every * 60
+                    temps = []
+                    for sid in range(1, 6):
+                        try:
+                            t = hand.servo_temperature(sid)
+                        except (serial.SerialException, OSError):
+                            t = None
+                        temps.append(t)
+                        if t is not None:
+                            max_temp[sid] = max(max_temp.get(sid, t), t)
+                    log.writerow([now(), "TEMP", " ".join(f"servo{i + 1}={t}" for i, t in enumerate(temps))])
+                    print(f"{now()} servo temperatures (C): {temps}")
+
                 elapsed_h = (time.time() - start) / 3600
                 if stats["commands"] % 300 == 0:
                     print(f"{now()} {elapsed_h:.2f} h, {stats['commands']} commands, "
@@ -141,6 +176,8 @@ def main() -> int:
     print(f"Commands sent:   {stats['commands']}")
     print(f"Missed replies:  {stats['missed_acks']}")
     print(f"Link losses:     {stats['link_losses']} (longest outage {stats['longest_outage_s']:.0f} s)")
+    if max_temp:
+        print("Max servo temp:  " + ", ".join(f"servo {k}: {v} C" for k, v in sorted(max_temp.items())))
     print(f"Log:             {log_name}")
     return 0
 
