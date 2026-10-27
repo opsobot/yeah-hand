@@ -12,7 +12,7 @@ Yeah Hand - An Open Source Robotic Hand for Humans and Robots
 
 Licenses: 
 - CERN-OHL-S-2.0 (Hardware)
-- GNU GPLV3 (Software)
+- GPL-3.0-or-later (Software)
 - CC-BY-SA (Documentation)
 
 Contributing
@@ -20,7 +20,7 @@ Contributing
 - Original hardware, software and documentation by Vittorio Lumare
 - Code contributions via Pull Requests to OPSOBOT/yeah-hand
 - Public Invention: Official development partner
-- All contributions under CERN-OHL-S-2.0 (Hardware), GNU GPL (Software), CC-BY-SA (Docs)
+- All contributions under CERN-OHL-S-2.0 (Hardware), GPL-3.0-or-later (Software), CC-BY-SA-4.0 (Docs)
 
 
 Overview
@@ -34,7 +34,7 @@ NOTE: This version will be certified with OSHWA after is stable, at the moment t
 
 This project hardware is released under the CERN Open Hardware License (OHL-S), ensuring the design remains open-source and preventing patent claims on its core innovations.
 
-The firmware is released under the GNU-GPL License.
+The firmware is released under the GNU GPL, version 3 or (at your option) any later version (GPL-3.0-or-later).
 
 The documentation is released under the CC-BY-SA License.
 
@@ -72,7 +72,7 @@ Repository Structure
     ├── LICENSE.txt (CC-BY-SA)
   ├── BOM.md (Bill of Materials — list of components and suppliers)
 /firmware
-  ├── LICENSE.txt (GNU GPL)
+  ├── LICENSE.txt (GNU GPLv3; firmware is GPL-3.0-or-later)
   ├── src/ (RebeliaRobot, RebeliaHuman, Servo Registration)
   ├── README.md (how to compile and upload the firmware)
 /docs
@@ -109,13 +109,13 @@ Licensing
 =========
 This project is licensed under multiple licenses:
 * Hardware : released under the CERN Open Hardware License Strongly Reciprocal v2 (CERN OHL-S). [Full license text](https://ohwr.org/project/cernohl/-/wikis/uploads/819d71bea3458f71fba6cf4fb0f2de6b/cern_ohl_s_v2.txt)
-* Firmware : released under the GNU GPL License, version 3 or later. [Full license text](https://www.gnu.org/licenses/gpl-3.0.html)
+* Firmware : released under the GNU General Public License, version 3 or (at your option) any later version (SPDX: GPL-3.0-or-later). [Full license text](https://www.gnu.org/licenses/gpl-3.0.html)
 * Documentation and multimedia : released under the Creative Commons Attribution-ShareAlike 4.0 License (CC-BY-SA). [Full license text](https://creativecommons.org/licenses/by-sa/4.0/deed.en)
 
 Anyone may study, build, modify and sell this design or products based on it. In short, if you distribute the design, modified versions or products made from it, you must:
 * Credit the original authors and keep the license notices.
 * Release modifications or derivatives of the hardware under the same CERN OHL-S license, with their sources, and indicate the Source Location (https://github.com/opsobot/yeah-hand) on products where practicable.
-* Release modifications or derivatives of the firmware under the GNU GPL license.
+* Release modifications or derivatives of the firmware under the GNU GPL, version 3 or later.
 * Release modifications or derivatives of documentation and multimedia content under the CC-BY-SA license.
 
 Both CERN OHL-S v2 and GNU GPLv3 include a patent licence: every contributor grants all users the rights under their patents needed to use what they distribute, and anyone who starts patent litigation over the design loses their rights under the licence. See the LICENSE file for details.

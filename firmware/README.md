@@ -6,7 +6,7 @@ Overview
 
 This folder contains the firmware for the Rebelia Hand, responsible for controlling the servomotors and processing commands for hand movements. The firmware is designed to work seamlessly with the open-source hardware of the robotic hand.
 
-The firmware is licensed under the GNU GPL License, ensuring that any modifications or derivatives remain open-source and freely available to the community.
+The firmware is licensed under the GNU General Public License, version 3 or (at your option) any later version (SPDX: GPL-3.0-or-later), ensuring that any modifications or derivatives remain open-source and freely available to the community.
 
 Structure
 =========
@@ -23,15 +23,15 @@ Structure
 Licensing
 =========
 
-The firmware in this folder is released under the GNU GPL License.
+The firmware in this folder is released under the GNU General Public License, version 3 or (at your option) any later version (GPL-3.0-or-later).
 
 By using or modifying this firmware, you agree to:
 
 Attribute the original authors.
 
-If you distribute any modified versions of this firmware, they must be released under the same GNU GPL license.
+If you distribute any modified versions of this firmware, they must be released under the GNU GPL, version 3 or later.
 
-Include a copy of the GNU GPL license with any distribution of this firmware.
+Include a copy of the GNU GPLv3 license text (LICENSE.txt) with any distribution of this firmware.
 
 You can find the full license text in the LICENSE.txt file.
 
@@ -49,7 +49,7 @@ Each source file contains a copyright notice similar to the following:
   Author: Vittorio Lumare
   Email: vittorio.lumare@robotgarage.org 
 
-  GNU GPL License
+  GNU GPL v3 or later (GPL-3.0-or-later)
 
   Copyright (c) 2025 Vittorio Lumare
 

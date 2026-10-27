@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
   Rebelia-Hand-Firmware is the control software for the Rebelia Hand
 
@@ -5,7 +6,7 @@
   Author: Vittorio Lumare
   Email: vittorio.lumar@robotgarage.org 
 
-  GNU GPL License
+  GNU GPL v3 or later (GPL-3.0-or-later)
 
   Copyright (c) 2025 Vittorio Lumare
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include <SCServo.h>
 
 #define S_RXD 18

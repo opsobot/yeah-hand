@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 /*
 Rebelia-Hand-Firmware is the control software for the Rebelia Hand, an Active Prosthetic Hand device (see https://www.robotgarage.org).
