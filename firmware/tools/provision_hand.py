@@ -62,9 +62,9 @@ def main() -> int:
 
     with serial.Serial(args.port, 115200, timeout=0.2) as port:
         # Opening the port resets the ESP32, which then calibrates the hand:
-        # ask for the status until it answers (up to about 60 s).
+        # ask for the status until it answers (up to about 2 min).
         status = []
-        for _ in range(30):
+        for _ in range(60):
             status = send(port, "FACTORY STATUS")
             if any(s.startswith("FACTORY STATUS") for s in status):
                 break
@@ -82,7 +82,7 @@ def main() -> int:
 
         # The hand restarts and calibrates again: wait for it.
         status = []
-        for _ in range(30):
+        for _ in range(60):
             status = send(port, "FACTORY STATUS")
             if any(s.startswith("FACTORY STATUS") for s in status):
                 break
