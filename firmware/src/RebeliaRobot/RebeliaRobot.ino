@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
 /*
 Rebelia-Robotic-Firmware is the control software for the Rebelia Robotic Hand, a robotic end-effector device (see https://www.robotgarage.org).
 
@@ -229,9 +228,8 @@ void loop() {
 
   if (gFsmState == FSM::Control) {
     if (g_new_grasp_type != g_grasp_type) {
-      auto full_cmd = FingersController::getGraspStringByType(g_new_grasp_type);
-      auto reduced_cmd = full_cmd.substring(0, full_cmd.length() - 2);
-      String msg = reduced_cmd + " GRASP ENABLED";
+      auto full_cmd = FingersController::getGraspStringByType(g_new_grasp_type);    
+      String msg = full_cmd + " GRASP ENABLED";
 
       if (BLUETOOTH) SerialBT.println(msg);
 

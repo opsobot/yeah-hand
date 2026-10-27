@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
 
 /*
 Rebelia-Hand-Firmware is the control software for the Rebelia Hand, an Active Prosthetic Hand device (see https://www.robotgarage.org).
@@ -20,15 +19,20 @@ The License Notices
 
 using namespace std::placeholders;
 
-FingersController::GraspType FingersController::getGraspTypeByString(const String& cmd) {
+FingersController::GraspType FingersController::getGraspTypeByString(const String& cmd_string) {
+
+  String cmd = cmd_string.substring(0, cmd_string.indexOf("\r\n"));
+
   if (cmd.substring(0, 5) == "POWER") {
     return FingersController::GraspType::POWER;
-  } else if (cmd.substring(0, 10) == "POWERSMALL") {
-    return FingersController::GraspType::POWERSMALL;
+  } else if (cmd.substring(0, 3) == "BAR") {
+    return FingersController::GraspType::BAR;
   } else if (cmd.substring(0, 6) == "MONKEY") {
     return FingersController::GraspType::MONKEY;
-  } else if (cmd.substring(0, 5) == "PINCH") {
-    return FingersController::GraspType::PINCH;
+  } else if (cmd.substring(0, 5) == "PINCH1") {
+    return FingersController::GraspType::PINCH1;
+  } else if (cmd.substring(0, 11) == "PINCH2") {
+    return FingersController::GraspType::PINCH2;
   }
 
   return FingersController::GraspType::_MAX;
@@ -40,19 +44,22 @@ String FingersController::getGraspStringByType(FingersController::GraspType type
 
   switch (type) {
     case FingersController::GraspType::POWER:
-      text = "POWER\r\n";
+      text = "POWER";
       break;
-    case FingersController::GraspType::POWERSMALL:
-      text = "POWERSMALL\r\n";
+    case FingersController::GraspType::BAR:
+      text = "BAR";
       break;
     case FingersController::GraspType::MONKEY:
-      text = "MONKEY\r\n";
+      text = "MONKEY";
       break;
-    case FingersController::GraspType::PINCH:
-      text = "PINCH\r\n";
+    case FingersController::GraspType::PINCH1:
+      text = "PINCH1";
+      break;
+    case FingersController::GraspType::PINCH2:
+      text = "PINCH2";
       break;
     case FingersController::GraspType::_MAX:
-      text = "INVALID_COMMAND\r\n";
+      text = "INVALID_COMMAND";
       break;
   }
 
@@ -105,8 +112,11 @@ void FingersController::setPinchOffset(int offset) {
     SerialBT->println("Please set a value between -40 and 40\n");
     return;
   }
-  for (int i = 0; i < PINCH_FRAMES; i++) {
-    PINCH_MATRIX[i][VectorIdx::Thumb] = PINCH_GRASP_THUMB_FLEXION + offset;
+  for (int i = 0; i < PINCH1_FRAMES; i++) {
+    PINCH1_MATRIX[i][VectorIdx::Thumb] = PINCH_GRASP_THUMB_FLEXION + offset;
+  }
+  for (int i = 0; i < PINCH2_FRAMES; i++) {
+    PINCH2_MATRIX[i][VectorIdx::Thumb] = PINCH_GRASP_THUMB_FLEXION + offset;
   }
   SerialBT->printf("Pinch grasp offset: %d\n", offset);
 }
@@ -185,7 +195,7 @@ void FingersController::calibrateHand() {
 
   u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
   u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
- 
+
   //waitKeyPress("Pre-position fingers for opening");
   // Pre-position fingers for opening
   setMaxTorque(IDN, IDs, (u16[]){ 250, 250, 250, 250, 250 });
@@ -201,43 +211,43 @@ void FingersController::calibrateHand() {
   moveUntilLoadLimitHit(INDEX_ID, readPos(INDEX_ID) + FLEXION_INCREMENT, 4000, 250);
   moveUntilLoadLimitHit(MIDDLE_ID, readPos(MIDDLE_ID) + FLEXION_INCREMENT, 4000, 250);
   moveUntilLoadLimitHit(RING_ID, readPos(RING_ID) + FLEXION_INCREMENT, 4000, 250);
-  
+
   //waitKeyPress("Move Thumb Rotation slightly back");
   // Move Thumb Rotation slightly back
   moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) + THUMB_ROT_INCREMENT, 4000, 250);
   // Store the min range positions (open flexion)
   setRangeByCurrentPos(IDN, IDXs, RANGE_MIN);
-  
+
   //waitKeyPress("Pre-position fingers for closing");
   // Pre-position fingers for closing
   setMaxTorque(IDN_Flex, IDs, (u16[]){ 200, 200, 200, 200 });
   moveUntilLoadLimitHit(IDN_Flex, IDs, START_POS_FOR_CLOSING, Speed, Acc);
- 
+
   //waitKeyPress("Closed flexion calibration");
   // Closed flexion calibration
   setMaxTorque(IDN_Flex, IDs, (u16[]){ 300, 300, 300, 500 });
   moveUntilLoadLimitHit(IDN_Flex, IDs, END_POS_FOR_CLOSING, Speed, Acc);
   setRangeByCurrentPos(IDN_Flex, IDXs, RANGE_MAX);
-   
+
   // Thumb Rotation Calibration..
   //waitKeyPress("Firstly open the thumb flexion");
   // Firstly open the thumb flexion
   setMaxTorque(THUMB_ID, 500);
   moveUntilLoadLimitHit(VectorIdx::Thumb, 0, 4000, 250);
-  
+
   //waitKeyPress("Calibrate Closed rotation");
   // Calibrate Closed rotation
   setMaxTorque(THUMB_R_ID, 400);
   moveUntilLoadLimitHit(THUMB_R_ID, THUMB_ROTATION_END_POS, 4000, 250);
   moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) - THUMB_ROT_INCREMENT, 4000, 250);  // move slightly back
   setRangeByCurrentPos(VectorIdx::ThumbRot, RANGE_MAX);
- 
+
   //waitKeyPress("Calibrate Open rotation");
   // Calibrate Open rotation
   moveUntilLoadLimitHit(THUMB_R_ID, THUMB_ROTATION_START_POS, 4000, 250);
   moveUntilLoadLimitHit(THUMB_R_ID, readPos(THUMB_R_ID) + THUMB_ROT_INCREMENT, 4000, 250);  // move slightly back
   setRangeByCurrentPos(VectorIdx::ThumbRot, RANGE_MIN);
- 
+
   //waitKeyPress("Hand is Calibrated.");
   // Hand is Calibrated.
 
@@ -294,12 +304,14 @@ int FingersController::getTrajectorySize(GraspType grasp_type) {
   switch (grasp_type) {
     case POWER:
       return POWER_FRAMES;
-    case POWERSMALL:
-      return POWERSMALL_FRAMES;
+    case BAR:
+      return BAR_FRAMES;
     case MONKEY:
       return MONKEY_FRAMES;
-    case PINCH:
-      return PINCH_FRAMES;
+    case PINCH1:
+      return PINCH1_FRAMES;
+    case PINCH2:
+      return PINCH2_FRAMES;
   }
   return -1;  //grasp_type not found
 }
@@ -315,18 +327,22 @@ void FingersController::getDataFromTrajectory(GraspType graspType, int frame, in
       matrix = POWER_MATRIX;
       frameCount = POWER_FRAMES;
       break;
-    case POWERSMALL:
-      matrix = POWERSMALL_MATRIX;
-      frameCount = POWERSMALL_FRAMES;
+    case BAR:
+      matrix = BAR_MATRIX;
+      frameCount = BAR_FRAMES;
       break;
     case MONKEY:
       matrix = MONKEY_MATRIX;
       frameCount = MONKEY_FRAMES;
       break;
-    case PINCH:
-      matrix = PINCH_MATRIX;
-      frameCount = PINCH_FRAMES;
-      break;    
+    case PINCH1:
+      matrix = PINCH1_MATRIX;
+      frameCount = PINCH1_FRAMES;
+      break;
+    case PINCH2:
+      matrix = PINCH2_MATRIX;
+      frameCount = PINCH2_FRAMES;
+      break;
     default:
       // Error: unknown grasp type
       for (int i = 0; i < ANY_MATRIX_COLS; i++) data[i] = -1;
