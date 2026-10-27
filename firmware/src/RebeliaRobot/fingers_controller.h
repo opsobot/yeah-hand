@@ -64,9 +64,10 @@ public:
 
   enum GraspType {
     POWER = 0,
-    POWERSMALL,
+    BAR,
     MONKEY,
-    PINCH,
+    PINCH1,
+    PINCH2,
     _MAX
   };
 
@@ -200,26 +201,35 @@ public:
     { 100, 100, 100, 100, 90, 100 }
   };
 
-  int POWERSMALL_FRAMES = 3;
-  int POWERSMALL_MATRIX[3][ANY_MATRIX_COLS] = {
-    { 0, 0, 0, 0, 90, 0 },
-    { 0, 0, 0, 60, 90, 30 },
-    { 100, 100, 100, 100, 90, 100 }
+  int BAR_FRAMES = 3;
+  int BAR_MATRIX[3][ANY_MATRIX_COLS] = {
+    { 0, 0, 0, 0, 50, 0 },
+    { 100, 100, 100, 0, 50, 50 },
+    { 100, 100, 100, 100, 50, 100 }
   };
 
   int MONKEY_FRAMES = 7;
   int MONKEY_MATRIX[4][ANY_MATRIX_COLS] = {
     { 0, 0, 0, 0, 0, 0 },
-    { 50, 50, 50, 50, 0, 70 },
-    { 100, 100, 100, 50, 0, 70 },
+    { 50, 50, 50, 50, 0, 50 },
+    { 100, 100, 100, 50, 0, 75 },
     { 100, 100, 100, 100, 0, 100 }
   };
 
-  int PINCH_FRAMES = 5;
   int PINCH_GRASP_THUMB_ROTATION = 80;
   int PINCH_GRASP_THUMB_FLEXION = 45;
-  int PINCH_MATRIX[7][ANY_MATRIX_COLS] = {
-    { 0, 0, 0, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 0 },  //60 safepinch
+  int PINCH1_FRAMES = 5;
+  int PINCH1_MATRIX[7][ANY_MATRIX_COLS] = {
+    { 0,  90, 90, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 0 },  //60 safepinch
+    { 45, 90, 90, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 25 },
+    { 50, 90, 90, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 50 },
+    { 55, 90, 90, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 75 },
+    { 60, 90, 90, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 100 }
+  };
+
+  int PINCH2_FRAMES = 5;
+  int PINCH2_MATRIX[7][ANY_MATRIX_COLS] = {
+    {  0, 0, 0, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 0 },  //60 safepinch
     { 45, 0, 0, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 25 },
     { 50, 0, 0, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 50 },
     { 55, 0, 0, PINCH_GRASP_THUMB_FLEXION, PINCH_GRASP_THUMB_ROTATION, 75 },
@@ -231,8 +241,8 @@ public:
   // Safety
 private:
   SafetyLimits limits{
-    .MAX_LOAD = 600,      // * 0.02 kg·cm * 600 = 12 kg·cm
-    .TF_MAX_LOAD = 600,   // * 0.02 kg·cm * 600 = 12 kg·cm
+    .MAX_LOAD = 400,      // * 0.02 kg·cm * 400 = 8 kg·cm
+    .TF_MAX_LOAD = 600,   // * 0.02 kg·cm * 600 = 12 kg·cm (thumb flexion)
     .OVER_CURRENT = 150,  // * 6.5 mA * 150 = 975 mA
     .OVER_LOAD = 600,     // * 0.02 kg·cm * 600 = 12 kg·cm
     .OVER_TEMP = 60       // * 1 °C * 60 = 60 °C
@@ -257,7 +267,7 @@ public:
     int overLoad;      // OVER_LOAD (safety cut-off)
   };
   static constexpr PowerPreset POWER_PRESETS[] = {
-    { "5A", 600, 600, 600 },  // standard, factory default
+    { "5A", 400, 600, 600 },  // standard, factory default
     { "1A", 200, 200, 200 },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
   };
   static constexpr int POWER_PRESETS_COUNT = sizeof(POWER_PRESETS) / sizeof(POWER_PRESETS[0]);

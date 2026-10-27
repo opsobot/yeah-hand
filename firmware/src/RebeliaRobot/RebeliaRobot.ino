@@ -20,7 +20,7 @@ Build environment used for the CE-assessed firmware:
 
 Command channels: Bluetooth Classic SPP and USB serial (115200), one command per line.
   Each channel has its own session: until "AUTH <password>" succeeds no other command is accepted.
-  Normal commands:   POWER | POWERSMALL | MONKEY | PINCH | <0..100> | ROS a b c d e
+  Normal commands:   POWER | BAR | MONKEY | PINCH1 | PINCH2 | <0..100> | ROS a b c d e
                      FI|FM|FR|FT|RT <0..100> | INFO <1..5> | POS | CONTROL
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
@@ -249,11 +249,9 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
   int a;
 
   // Grasp selection (exact match)
-  if (cmd == "POWER" || cmd == "POWERSMALL" || cmd == "MONKEY" || cmd == "PINCH") {
-    g_new_grasp_type = cmd == "POWER"        ? FingersController::GraspType::POWER
-                       : cmd == "POWERSMALL" ? FingersController::GraspType::POWERSMALL
-                       : cmd == "MONKEY"     ? FingersController::GraspType::MONKEY
-                                             : FingersController::GraspType::PINCH;
+  FingersController::GraspType grasp = FingersController::getGraspTypeByString(cmd);
+  if (grasp != FingersController::GraspType::_MAX && cmd == FingersController::getGraspStringByType(grasp)) {
+    g_new_grasp_type = grasp;
     reply("OK GRASP");
     return;
   }
@@ -319,7 +317,7 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
     return;
   }
   if (cmd == "HELP") {
-    reply("Commands: POWER|POWERSMALL|MONKEY|PINCH, 0..100, ROS a b c d e, FI|FM|FR|FT|RT n, INFO id, POS, CONTROL,");
+    reply("Commands: POWER|BAR|MONKEY|PINCH1|PINCH2, 0..100, ROS a b c d e, FI|FM|FR|FT|RT n, INFO id, POS, CONTROL,");
     reply("LOGOUT, SETPASS old new, PAIRING, UNPAIR ALL, SERVICE ON");
     return;
   }
@@ -432,8 +430,7 @@ void loop() {
   if (gFsmState == FSM::Control) {
     if (g_new_grasp_type != g_grasp_type) {
       auto full_cmd = FingersController::getGraspStringByType(g_new_grasp_type);
-      auto reduced_cmd = full_cmd.substring(0, full_cmd.length() - 2);
-      String msg = reduced_cmd + " GRASP ENABLED";
+      String msg = full_cmd + " GRASP ENABLED";
 
       g_out->println(msg);
 
