@@ -320,6 +320,10 @@ void readChannel(Stream &in, HandSecurity::Session &session, bool isUsb) {
   while (in.available()) {
     if (!readLine(in, cmd)) continue;
     if (isUsb && HandSecurity::handleFactoryCommand(cmd, in)) continue;
+    if (!isUsb && cmd.startsWith("FACTORY")) {
+      session.out->println("ERR FACTORY COMMANDS ONLY ON USB");
+      continue;
+    }
     if (cmd.startsWith("ROS ")) {
       lastPosCmd = cmd;  // only the most recent position command is executed
     } else {
