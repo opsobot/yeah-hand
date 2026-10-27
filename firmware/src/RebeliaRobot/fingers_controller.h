@@ -269,7 +269,7 @@ public:
   // Units: load 0.02 kg·cm, current 6.5 mA, temperature 1 °C
   static constexpr PowerPreset POWER_PRESETS[] = {
     { "5A", { 400, 600, 150, 600, 60 } },  // standard, factory default
-    { "1A", { 200, 200, 150, 200, 60 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
+    { "1A", { 200, 200, 150, 250, 60 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
   };
   static constexpr int POWER_PRESETS_COUNT = sizeof(POWER_PRESETS) / sizeof(POWER_PRESETS[0]);
   static const PowerPreset *findPowerPreset(const String &name);
