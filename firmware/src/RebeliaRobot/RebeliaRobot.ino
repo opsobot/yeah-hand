@@ -184,9 +184,12 @@ void savePowerPreset(const String &name) {
 }
 
 void printPowerPresets() {
-  g_out->printf("SUPPLY %s (available:", fc.powerPresetName());
+  const SafetyLimits &l = fc.safetyLimits();
+  g_out->printf("SUPPLY %s: MAX_LOAD=%d TF_MAX_LOAD=%d OVER_CURRENT=%d OVER_LOAD=%d OVER_TEMP=%d\n", fc.powerPresetName(),
+                l.MAX_LOAD, l.TF_MAX_LOAD, l.OVER_CURRENT, l.OVER_LOAD, l.OVER_TEMP);
+  g_out->print("Available presets:");
   for (int i = 0; i < FingersController::POWER_PRESETS_COUNT; i++) g_out->printf(" %s", FingersController::POWER_PRESETS[i].name);
-  g_out->println(")");
+  g_out->println();
 }
 
 bool processServiceCommand(const String &cmd) {

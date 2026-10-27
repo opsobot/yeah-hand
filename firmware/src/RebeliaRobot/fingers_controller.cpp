@@ -749,9 +749,7 @@ const FingersController::PowerPreset *FingersController::findPowerPreset(const S
 bool FingersController::setPowerPreset(const String &name) {
   const PowerPreset *p = findPowerPreset(name);
   if (!p) return false;
-  limits.MAX_LOAD = p->maxLoad;
-  limits.TF_MAX_LOAD = p->tfMaxLoad;
-  limits.OVER_LOAD = p->overLoad;
+  limits = p->limits;
   power_preset_name = p->name;
   return true;
 }

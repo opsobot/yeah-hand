@@ -261,20 +261,21 @@ public:
   // Power presets: torque limits that keep the hand's supply current within a budget.
   // Each preset is validated by measurement before it is added (see technical file).
   struct PowerPreset {
-    const char *name;  // nominal max supply current at 12 V
-    int maxLoad;       // MAX_LOAD for all servos except thumb flexion
-    int tfMaxLoad;     // TF_MAX_LOAD for thumb flexion
-    int overLoad;      // OVER_LOAD (safety cut-off)
+    const char *name;     // nominal max supply current at 12 V
+    SafetyLimits limits;  // every limit is set by the preset
   };
+  // Fields: MAX_LOAD, TF_MAX_LOAD (thumb flexion), OVER_CURRENT, OVER_LOAD, OVER_TEMP
+  // Units: load 0.02 kg·cm, current 6.5 mA, temperature 1 °C
   static constexpr PowerPreset POWER_PRESETS[] = {
-    { "5A", 400, 600, 600 },  // standard, factory default
-    { "1A", 200, 200, 200 },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
+    { "5A", { 400, 600, 150, 600, 60 } },  // standard, factory default
+    { "1A", { 200, 200, 150, 200, 60 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
   };
   static constexpr int POWER_PRESETS_COUNT = sizeof(POWER_PRESETS) / sizeof(POWER_PRESETS[0]);
   static const PowerPreset *findPowerPreset(const String &name);
   // Applies the limits of a preset (call before calibrateHand()). False if the name is unknown.
   bool setPowerPreset(const String &name);
   const char *powerPresetName() const { return power_preset_name; }
+  const SafetyLimits &safetyLimits() const { return limits; }
 
   // Set from the model stored at provisioning, before calibrateHand().
   void setHandSide(HandSide side) { hand_side = side; }
