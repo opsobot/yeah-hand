@@ -61,9 +61,13 @@ def main() -> int:
     args = ap.parse_args()
 
     with serial.Serial(args.port, 115200, timeout=0.2) as port:
-        time.sleep(2.5)  # opening the port resets the ESP32: wait for boot
-
-        status = send(port, "FACTORY STATUS")
+        # Opening the port resets the ESP32, which then calibrates the hand:
+        # ask for the status until it answers (up to about 60 s).
+        status = []
+        for _ in range(30):
+            status = send(port, "FACTORY STATUS")
+            if any(s.startswith("FACTORY STATUS") for s in status):
+                break
         print("\n".join(status))
         if not any("provisioned=no" in s for s in status):
             print("STOP: the hand is already provisioned (or not responding).", file=sys.stderr)
@@ -76,8 +80,12 @@ def main() -> int:
             print("STOP: provisioning failed, nothing written to the register.", file=sys.stderr)
             return 1
 
-        time.sleep(3)  # the hand restarts
-        status = send(port, "FACTORY STATUS")
+        # The hand restarts and calibrates again: wait for it.
+        status = []
+        for _ in range(30):
+            status = send(port, "FACTORY STATUS")
+            if any(s.startswith("FACTORY STATUS") for s in status):
+                break
         print("\n".join(status))
         name = next((p.split("=", 1)[1] for s in status for p in s.split() if p.startswith("name=")), "")
 
