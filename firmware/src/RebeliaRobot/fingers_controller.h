@@ -45,6 +45,7 @@ static bool isClose(int value, int target, int tolerance) {
 
 struct SafetyLimits {
   int MAX_LOAD;
+  int TF_MAX_LOAD;
   int OVER_CURRENT;
   int OVER_LOAD;
   int OVER_TEMP;
@@ -228,7 +229,8 @@ public:
   // Safety
 private:
   SafetyLimits limits{
-    .MAX_LOAD = 600,      // * 0.02 kg·cm * 600 = 12 kg·cm
+    .MAX_LOAD = 400,      // * 0.02 kg·cm * 400 = 8 kg·cm
+    .TF_MAX_LOAD = 600,      // * 0.02 kg·cm * 600 = 12 kg·cm
     .OVER_CURRENT = 150,  // * 6.5 mA * 150 = 975 mA
     .OVER_LOAD = 600,     // * 0.02 kg·cm * 600 = 12 kg·cm
     .OVER_TEMP = 60       // * 1 °C * 60 = 60 °C

@@ -193,9 +193,9 @@ void FingersController::calibrateHand() {
 
   //waitKeyPress("Open flexion calibration");
   // Open flexion calibration
-  setMaxTorque(IDN, IDs, (u16[]){ 75, 75, 75, 150, 200 });
+  setMaxTorque(IDN, IDs, (u16[]){ 75, 100, 75, 150, 200 });
   moveUntilLoadLimitHit(IDN, IDs, END_POS_FOR_OPENING, Speed, Acc);
- 
+
   //waitKeyPress("Move Index , Middle and Ring+Little flexion slightly back..");
   // Move Index , Middle and Ring+Little flexion slightly back..
   moveUntilLoadLimitHit(INDEX_ID, readPos(INDEX_ID) + FLEXION_INCREMENT, 4000, 250);
@@ -724,8 +724,12 @@ void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc)
 }
 
 void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
-
-  auto limitedMaxTorque = (u16)min(limits.MAX_LOAD, (int)maxTorque);
+  u16 limitedMaxTorque = 0;
+  if (ID != 4) {  // it's not the thumb flexion
+    limitedMaxTorque = (u16)min(limits.MAX_LOAD, (int)maxTorque);
+  } else {  // it's the thumb flexion
+    limitedMaxTorque = (u16)min(limits.TF_MAX_LOAD, (int)maxTorque);
+  }
   st.EnableTorque(ID, 0);  // Disable torque
   st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, limitedMaxTorque);
   st.EnableTorque(ID, 1);  // Enable with limit
@@ -737,7 +741,13 @@ void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque
 
   // Convert to bytes
   for (int i = 0; i < 5; i++) {
-    auto maxTorque = (u16)min(limits.MAX_LOAD, (int)MaxTorque[i]);
+    u16 maxTorque;
+    auto ID = IDs[i];
+    if (ID != 4) {  // it's not the thumb flexion
+      maxTorque = (u16)min(limits.MAX_LOAD, (int)MaxTorque[i]);
+    } else {  // it's the thumb flexion
+      maxTorque = (u16)min(limits.TF_MAX_LOAD, (int)MaxTorque[i]);
+    }
     bytes[i * 2] = maxTorque & 0xFF;             // Low byte
     bytes[i * 2 + 1] = (maxTorque >> 8) & 0xFF;  // High byte
   }
