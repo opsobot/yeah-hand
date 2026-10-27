@@ -80,7 +80,7 @@ Please refer to the following external dependencies:
 
 * SCServo by FT&WS: (GNU GPLv3) — [https://github.com/workloads/scservo]
 * BluetoothSerial by Henry Abrahamsen: [Released into the public domain] — [https://github.com/hen1227/bluetooth-serial]
-* ESP32FFT modified version by Vittorio Lumare: (Custom License) — [https://github.com/vittorio-lumare/ESP32FFT]
+* ESP32FFT modified version by Vittorio Lumare: (MIT License, GPL-compatible) — [https://github.com/vittorio-lumare/ESP32FFT]
 	* Note:  The original version is by Robin Scheibler [https://github.com/fakufaku/esp32-fft]
 
 
