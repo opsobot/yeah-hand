@@ -25,7 +25,9 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | MOVE <1..5> <0..4095> | SERVICE OFF
+                     LIM <1..5> <0..1000> | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+  Power presets (SUPPLY): torque limits that keep the supply current within a budget,
+  stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
 Factory provisioning, USB serial only: FACTORY STATUS | FACTORY PROVISION <serial> <L|R> <password>
   (once per device; the password cannot be read back. Until provisioned, Bluetooth stays off.)
@@ -35,6 +37,7 @@ Factory provisioning, USB serial only: FACTORY STATUS | FACTORY PROVISION <seria
 #include <BluetoothSerial.h>
 #include "fingers_controller.h"
 #include "security.h"
+#include <Preferences.h>
 
 #define S_RXD 18
 #define S_TXD 19
@@ -89,6 +92,14 @@ void setup() {
     fc.setHandSide(FingersController::HandSide::LeftSide);
     if (HandSecurity::model() != "L") Serial.println("WARNING: model not provisioned, assuming left hand (L)");
   }
+
+  // Power preset (torque limits for the available supply current)
+  String preset = loadPowerPreset();
+  if (!fc.setPowerPreset(preset)) {
+    Serial.printf("WARNING: unknown power preset %s, using 5A\n", preset.c_str());
+    fc.setPowerPreset("5A");
+  }
+  Serial.printf("Power preset: %s\n", fc.powerPresetName());
 
   // Hand Calibration (messages on USB: no client is connected yet)
   fc.setOutput(&Serial);
@@ -156,6 +167,28 @@ void moveFinger(FingersController::VectorIdx idx, int factor) {
   fc.moveUntilLoadLimitHit(idx, factor, 3073, 200);
 }
 
+// Power preset stored in NVS (namespace "yhcfg"), applied before calibration.
+String loadPowerPreset() {
+  Preferences cfg;
+  cfg.begin("yhcfg", true);
+  String name = cfg.getString("power", "5A");
+  cfg.end();
+  return name;
+}
+
+void savePowerPreset(const String &name) {
+  Preferences cfg;
+  cfg.begin("yhcfg", false);
+  cfg.putString("power", name);
+  cfg.end();
+}
+
+void printPowerPresets() {
+  g_out->printf("SUPPLY %s (available:", fc.powerPresetName());
+  for (int i = 0; i < FingersController::POWER_PRESETS_COUNT; i++) g_out->printf(" %s", FingersController::POWER_PRESETS[i].name);
+  g_out->println(")");
+}
+
 bool processServiceCommand(const String &cmd) {
   int a, b;
   if (cmd == "SERVICE OFF") {
@@ -173,6 +206,20 @@ bool processServiceCommand(const String &cmd) {
     reply("OK CALIBRATE");
   } else if (parseOneArg(cmd, "SETCENTER ", 1, 5, a)) {
     fc.setCenterOfRange(a);
+  } else if (cmd == "SUPPLY") {
+    printPowerPresets();
+  } else if (cmd.startsWith("SUPPLY ")) {
+    String name = cmd.substring(7);
+    if (!FingersController::findPowerPreset(name)) {
+      reply("ERR SUPPLY: unknown preset");
+      printPowerPresets();
+    } else {
+      savePowerPreset(name);
+      g_out->printf("OK SUPPLY %s, restarting to apply\n", name.c_str());
+      g_out->flush();
+      delay(200);
+      ESP.restart();
+    }
   } else if (parseOneArg(cmd, "SETPINCH ", -40, 40, a)) {
     fc.setPinchOffset(a);
   } else if (parseTwoArgs(cmd, "LIM ", 1, 5, 0, 1000, a, b)) {

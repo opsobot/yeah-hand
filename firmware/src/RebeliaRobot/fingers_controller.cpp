@@ -722,9 +722,32 @@ void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc)
   moveUntilLoadLimitHit(IDN, IDs, Pos, Speed, Acc);
 }
 
+const FingersController::PowerPreset *FingersController::findPowerPreset(const String &name) {
+  for (int i = 0; i < POWER_PRESETS_COUNT; i++) {
+    if (name == POWER_PRESETS[i].name) return &POWER_PRESETS[i];
+  }
+  return nullptr;
+}
+
+bool FingersController::setPowerPreset(const String &name) {
+  const PowerPreset *p = findPowerPreset(name);
+  if (!p) return false;
+  limits.MAX_LOAD = p->maxLoad;
+  limits.TF_MAX_LOAD = p->tfMaxLoad;
+  limits.OVER_LOAD = p->overLoad;
+  power_preset_name = p->name;
+  return true;
+}
+
+// Torque limit of one servo, capped by the active power preset.
+u16 FingersController::clampTorque(u8 ID, u16 torque) const {
+  int cap = (ID == THUMB_ID) ? limits.TF_MAX_LOAD : limits.MAX_LOAD;
+  return (u16)min(cap, (int)torque);
+}
+
 void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
 
-  auto limitedMaxTorque = (u16)min(limits.MAX_LOAD, (int)maxTorque);
+  auto limitedMaxTorque = clampTorque(ID, maxTorque);
   st.EnableTorque(ID, 0);  // Disable torque
   st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, limitedMaxTorque);
   st.EnableTorque(ID, 1);  // Enable with limit
@@ -735,8 +758,8 @@ void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque
   u8 bytes[2 * IDN];  // 5 servos × 2 bytes each
 
   // Convert to bytes
-  for (int i = 0; i < 5; i++) {
-    auto maxTorque = (u16)min(limits.MAX_LOAD, (int)MaxTorque[i]);
+  for (int i = 0; i < IDN; i++) {
+    auto maxTorque = clampTorque(IDs[i], MaxTorque[i]);
     bytes[i * 2] = maxTorque & 0xFF;             // Low byte
     bytes[i * 2 + 1] = (maxTorque >> 8) & 0xFF;  // High byte
   }
