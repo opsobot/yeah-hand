@@ -248,7 +248,8 @@ private:
     .OVER_TEMP = 60       // * 1 °C * 60 = 60 °C
   };
 
-  int lastValidTemp[SERVOS_SIZE];
+  int lastValidTemp[SERVOS_SIZE] = { -1, -1, -1, -1, -1 };  // index = servo id - 1
+  bool safetyTripped[SERVOS_SIZE] = { false, false, false, false, false };
 
 public:
   void safetyFeature();

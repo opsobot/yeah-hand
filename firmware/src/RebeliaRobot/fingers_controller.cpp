@@ -794,8 +794,15 @@ void FingersController::setRangeByCurrentPos(VectorIdx IDX, u8 rangeIndex) {
 }
 
 // Safety
+// Servo names by id (1..5), for messages.
+static const char *servoName(int id) {
+  static const char *NAMES[] = { "?", "index flexion", "middle flexion", "ring+little flexion", "thumb flexion", "thumb rotation" };
+  return (id >= 1 && id <= 5) ? NAMES[id] : NAMES[0];
+}
+
 void FingersController::safetyFeature() {
   for (int id = 1; id <= FingersController::SERVOS_SIZE; id++) {
+    const int i = id - 1;
     auto c = readCurrent(id);
     auto l = readLoad(id);
     auto t = readTemper(id);
@@ -804,22 +811,36 @@ void FingersController::safetyFeature() {
     bool tempValueInsideRange = (t >= 0 && t <= 120);
     bool tempValueIsValid = false;
     if (tempValueInsideRange) {
-      int tPrev = lastValidTemp[id];
+      int tPrev = lastValidTemp[i];
       if (tPrev >= 0 && abs(t - tPrev) > 5) {
         tempValueIsValid = false;
       } else {
         tempValueIsValid = true;
-        lastValidTemp[id] = t;
+        lastValidTemp[i] = t;
       }
     }
 
-    auto fault = c >= limits.OVER_CURRENT || l >= limits.OVER_LOAD || tempValueInsideRange && tempValueIsValid && t >= limits.OVER_TEMP;
+    bool overCurrent = c >= limits.OVER_CURRENT;
+    bool overLoad = l >= limits.OVER_LOAD;
+    bool overTemp = tempValueInsideRange && tempValueIsValid && t >= limits.OVER_TEMP;
+    bool fault = overCurrent || overLoad || overTemp;
 
     if (fault) {
       enableTorque(id, false);
-      SerialBT->printf("Safety: disabled id %d (C:%d L:%d T:%d)!!\n", id, c, l, t);
+      if (!safetyTripped[i]) {  // report once, when the fault starts
+        SerialBT->printf("SAFETY: servo %d (%s) torque OFF, preset %s:", id, servoName(id), power_preset_name);
+        if (overCurrent) SerialBT->printf(" CURRENT %d mA >= limit %d mA (OVER_CURRENT %d);", (int)(c * 6.5), (int)(limits.OVER_CURRENT * 6.5), limits.OVER_CURRENT);
+        if (overLoad) SerialBT->printf(" LOAD %d >= limit %d (OVER_LOAD, torque cap MAX_LOAD %d / TF_MAX_LOAD %d);", l, limits.OVER_LOAD, limits.MAX_LOAD, limits.TF_MAX_LOAD);
+        if (overTemp) SerialBT->printf(" TEMPERATURE %d C >= limit %d C (OVER_TEMP);", t, limits.OVER_TEMP);
+        SerialBT->println();
+        safetyTripped[i] = true;
+      }
     } else {
       enableTorque(id, true);
+      if (safetyTripped[i]) {
+        SerialBT->printf("SAFETY: servo %d (%s) torque ON again (current %d mA, load %d, temperature %d C)\n", id, servoName(id), (int)(c * 6.5), l, t);
+        safetyTripped[i] = false;
+      }
     }
   }
 }
