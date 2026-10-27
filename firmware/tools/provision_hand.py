@@ -14,7 +14,7 @@ The hand never reveals the password afterwards: keep the register safe
 
 Usage:
   pip install pyserial
-  python provision_hand.py --port /dev/ttyUSB0 --serial 2026-L-000001 [--register hands_register.csv]
+  python provision_hand.py --port /dev/ttyUSB0 --serial 2026-000001 [--register hands_register.csv]
   (Windows: --port COM5, macOS: --port /dev/tty.usbserial-XXXX)
 """
 
@@ -56,7 +56,7 @@ def send(port: serial.Serial, line: str, wait_s: float = 2.0) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Yeah Hand factory provisioning")
     ap.add_argument("--port", required=True, help="USB serial port of the hand")
-    ap.add_argument("--serial", required=True, help="serial number YYYY-S-NNNNNN, S = L or R, e.g. 2026-L-000001 (label shows \"2026 L 000001\")")
+    ap.add_argument("--serial", required=True, help="serial number YYYY-NNNNNN as on the nameplate, e.g. 2026-000001 (label shows \"2026 000001\"); the model L or R is not part of it")
     ap.add_argument("--register", default="hands_register.csv", help="CSV register of provisioned hands")
     args = ap.parse_args()
 
