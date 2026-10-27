@@ -283,5 +283,5 @@ public:
 private:
   HandSide hand_side = HandSide::LeftSide;
   const char *power_preset_name = "5A";
-  u16 limitTorque(u8 ID, u16 torque) const;
+  u16 respectTorqueLimits(u8 ID, u16 torque) const;
 };
