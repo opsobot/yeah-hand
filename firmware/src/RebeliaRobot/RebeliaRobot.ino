@@ -27,7 +27,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
                      LIM <1..5> <0..1000> | MOVE <1..5> <0..4095> | SERVICE OFF
   Every other line is rejected with "ERR" and causes no motion.
-Factory provisioning, USB serial only: FACTORY STATUS | FACTORY PROVISION <serial> <password>
+Factory provisioning, USB serial only: FACTORY STATUS | FACTORY PROVISION <serial> <L|R> <password>
   (once per device; the password cannot be read back. Until provisioned, Bluetooth stays off.)
 */
 
@@ -77,8 +77,16 @@ void setup() {
   } else {
     // Not provisioned: no radio, no calibration, no motion. Only FACTORY commands
     // on USB are served (see loop), so provisioning works even without 12 V.
-    Serial.println("NOT PROVISIONED: Bluetooth off. Use FACTORY PROVISION <serial> <password>.");
+    Serial.println("NOT PROVISIONED: Bluetooth off. Use FACTORY PROVISION <serial> <L|R> <password>.");
     return;
+  }
+
+  // Hand side from the model stored at provisioning (L = left, R = right)
+  if (HandSecurity::model() == "R") {
+    fc.setHandSide(FingersController::HandSide::RightSide);
+  } else {
+    fc.setHandSide(FingersController::HandSide::LeftSide);
+    if (HandSecurity::model() != "L") Serial.println("WARNING: model not provisioned, assuming left hand (L)");
   }
 
   // Hand Calibration (messages on USB: no client is connected yet)

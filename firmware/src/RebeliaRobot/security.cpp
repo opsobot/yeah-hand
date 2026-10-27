@@ -18,6 +18,7 @@ namespace {
 constexpr const char *NVS_NAMESPACE = "yhsec";
 constexpr const char *NVS_KEY_PASSWORD = "pw";
 constexpr const char *NVS_KEY_SERIAL = "sn";
+constexpr const char *NVS_KEY_MODEL = "md";
 constexpr size_t MIN_PASSWORD_LEN = 10;
 constexpr size_t MAX_PASSWORD_LEN = 32;
 constexpr size_t MAX_SERIAL_LEN = 16;
@@ -30,6 +31,7 @@ BluetoothSerial *s_bt = nullptr;
 Preferences s_prefs;
 String s_password;
 String s_serial;
+String s_model;  // "L" or "R"
 
 Session s_btSession{ nullptr, false };
 Session s_usbSession{ &Serial, false };
@@ -65,6 +67,10 @@ bool isValidPassword(const String &pw) {
     if (c <= ' ' || c > '~') return false;  // printable ASCII, no spaces
   }
   return true;
+}
+
+bool isValidModel(const String &md) {
+  return md == "L" || md == "R";
 }
 
 bool isValidSerial(const String &sn) {
@@ -156,6 +162,7 @@ void loadProvisioning() {
   s_prefs.begin(NVS_NAMESPACE, false);
   s_password = s_prefs.getString(NVS_KEY_PASSWORD, "");
   s_serial = s_prefs.getString(NVS_KEY_SERIAL, "");
+  s_model = s_prefs.getString(NVS_KEY_MODEL, "");
 }
 
 bool isProvisioned() {
@@ -166,8 +173,12 @@ String serialNumber() {
   return s_serial;
 }
 
+String model() {
+  return s_model;
+}
+
 String deviceName() {
-  if (s_serial.length() > 0) return "YeahHand-" + s_serial;
+  if (s_serial.length() > 0) return "YeahHand-" + (s_model.length() ? s_model + "-" : String("")) + s_serial;
   uint8_t mac[6];
   esp_read_mac(mac, ESP_MAC_BT);
   char name[20];
@@ -300,8 +311,8 @@ bool handleFactoryCommand(const String &line, Stream &out) {
   if (!line.startsWith("FACTORY")) return false;
 
   if (line == "FACTORY STATUS") {
-    out.printf("FACTORY STATUS provisioned=%s serial=%s name=%s\n", isProvisioned() ? "yes" : "no",
-               s_serial.length() ? s_serial.c_str() : "-", deviceName().c_str());
+    out.printf("FACTORY STATUS provisioned=%s serial=%s model=%s name=%s\n", isProvisioned() ? "yes" : "no",
+               s_serial.length() ? s_serial.c_str() : "-", s_model.length() ? s_model.c_str() : "-", deviceName().c_str());
     return true;
   }
 
@@ -310,16 +321,23 @@ bool handleFactoryCommand(const String &line, Stream &out) {
       out.println("ERR ALREADY PROVISIONED (erase the flash to provision again)");
       return true;
     }
+    // FACTORY PROVISION <serial> <L|R> <password>
     String args = line.substring(18);
-    int sep = args.indexOf(' ');
-    if (sep < 0) {
-      out.println("ERR USAGE: FACTORY PROVISION <serial> <password>");
+    int sep1 = args.indexOf(' ');
+    int sep2 = sep1 < 0 ? -1 : args.indexOf(' ', sep1 + 1);
+    if (sep1 < 0 || sep2 < 0) {
+      out.println("ERR USAGE: FACTORY PROVISION <serial> <L|R> <password>");
       return true;
     }
-    String sn = args.substring(0, sep);
-    String pw = args.substring(sep + 1);
+    String sn = args.substring(0, sep1);
+    String md = args.substring(sep1 + 1, sep2);
+    String pw = args.substring(sep2 + 1);
     if (!isValidSerial(sn)) {
       out.printf("ERR SERIAL: 1-%u characters A-Z a-z 0-9 -\n", (unsigned)MAX_SERIAL_LEN);
+      return true;
+    }
+    if (!isValidModel(md)) {
+      out.println("ERR MODEL: L or R");
       return true;
     }
     if (!isValidPassword(pw)) {
@@ -327,17 +345,19 @@ bool handleFactoryCommand(const String &line, Stream &out) {
       return true;
     }
     s_prefs.putString(NVS_KEY_SERIAL, sn);
+    s_prefs.putString(NVS_KEY_MODEL, md);
     s_prefs.putString(NVS_KEY_PASSWORD, pw);
     s_serial = sn;
+    s_model = md;
     s_password = pw;
-    out.printf("OK PROVISIONED serial=%s name=%s, restarting\n", sn.c_str(), deviceName().c_str());
+    out.printf("OK PROVISIONED serial=%s model=%s name=%s, restarting\n", sn.c_str(), md.c_str(), deviceName().c_str());
     out.flush();
     delay(200);
     ESP.restart();
     return true;
   }
 
-  out.println("ERR FACTORY: FACTORY STATUS | FACTORY PROVISION <serial> <password>");
+  out.println("ERR FACTORY: FACTORY STATUS | FACTORY PROVISION <serial> <L|R> <password>");
   return true;
 }
 

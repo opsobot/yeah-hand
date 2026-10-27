@@ -14,7 +14,7 @@ The hand never reveals the password afterwards: keep the register safe
 
 Usage:
   pip install pyserial
-  python provision_hand.py --port /dev/ttyUSB0 --serial 2026-00001 [--register hands_register.csv]
+  python provision_hand.py --port /dev/ttyUSB0 --serial 2026-00001 --model L [--register hands_register.csv]
   (Windows: --port COM5, macOS: --port /dev/tty.usbserial-XXXX)
 """
 
@@ -56,7 +56,8 @@ def send(port: serial.Serial, line: str, wait_s: float = 2.0) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Yeah Hand factory provisioning")
     ap.add_argument("--port", required=True, help="USB serial port of the hand")
-    ap.add_argument("--serial", required=True, help="serial number YYYY-NNNNN (year + 5-digit number, reset every year) as on the nameplate, e.g. 2026-00001 (label shows \"2026 00001\"); the model L or R is not part of it")
+    ap.add_argument("--serial", required=True, help="serial number YYYY-NNNNN (year + 5-digit number, reset every year) as on the nameplate, e.g. 2026-00001 (label shows \"2026 00001\")")
+    ap.add_argument("--model", required=True, choices=["L", "R"], help="Yeah Hand L (left) or Yeah Hand R (right)")
     ap.add_argument("--register", default="hands_register.csv", help="CSV register of provisioned hands")
     args = ap.parse_args()
 
@@ -74,7 +75,7 @@ def main() -> int:
             return 1
 
         password = generate_password()
-        result = send(port, f"FACTORY PROVISION {args.serial} {password}")
+        result = send(port, f"FACTORY PROVISION {args.serial} {args.model} {password}")
         print("\n".join(result))
         if not any(s.startswith("OK PROVISIONED") for s in result):
             print("STOP: provisioning failed, nothing written to the register.", file=sys.stderr)
@@ -93,11 +94,11 @@ def main() -> int:
     with open(args.register, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if new_file:
-            w.writerow(["serial", "bluetooth_name", "password", "provisioned_at", "customer", "invoice"])
-        w.writerow([args.serial, name, password, datetime.datetime.now().isoformat(timespec="seconds"), "", ""])
+            w.writerow(["serial", "model", "bluetooth_name", "password", "provisioned_at", "customer", "invoice"])
+        w.writerow([args.serial, args.model, name, password, datetime.datetime.now().isoformat(timespec="seconds"), "", ""])
 
     print("\n--- LABEL ---")
-    print(f"Yeah Hand  S/N: {args.serial}")
+    print(f"Model: Yeah Hand {args.model}   SN: {args.serial.replace('-', ' ')}")
     print(f"Bluetooth: {name}")
     print(f"Password:  {password}")
     print("-------------")

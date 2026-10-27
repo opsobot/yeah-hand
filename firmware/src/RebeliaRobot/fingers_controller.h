@@ -245,7 +245,10 @@ private:
   SMS_STS st;
   Stream* SerialBT;  // current output channel (Bluetooth or USB)
 
+public:
+  // Set from the model stored at provisioning, before calibrateHand().
+  void setHandSide(HandSide side) { hand_side = side; }
+
 private:
-  // ** !! SET THE HAND SIDE BEFORE PROGRAMMING !! **
-  const HandSide hand_side = HandSide::LeftSide;
+  HandSide hand_side = HandSide::LeftSide;
 };

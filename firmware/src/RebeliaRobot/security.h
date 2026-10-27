@@ -6,8 +6,9 @@ License: GNU GPL v3 or later (see COPYING.txt).
 Access control for RED Art. 3.3(d) / EN 18031-1.
 
 Provisioning (manufacturer, wired USB, once per device):
-  FACTORY PROVISION <serial> <password>   accepted only while no password is stored
-  FACTORY STATUS                          serial, Bluetooth name, provisioned yes/no (never the password)
+  FACTORY PROVISION <serial> <L|R> <password>   accepted only while no password is stored
+  FACTORY STATUS          serial, model, Bluetooth name, provisioned yes/no (never the password)
+  The model (L = left hand, R = right hand) also selects the calibration direction.
   No command can read the password back. A lost password is recovered from the
   manufacturer's records, or by erasing the flash and provisioning again.
 
@@ -44,7 +45,10 @@ void loadProvisioning();
 bool isProvisioned();
 String serialNumber();
 
-// Bluetooth name: "YeahHand-<serial>" (or derived from the MAC if not provisioned).
+// Model stored at provisioning: "L", "R" (or empty).
+String model();
+
+// Bluetooth name: "YeahHand-<model>-<serial>" (or derived from the MAC if not provisioned).
 String deviceName();
 
 // Must be called BEFORE SerialBT.begin().
