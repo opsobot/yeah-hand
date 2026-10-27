@@ -75,7 +75,10 @@ void setup() {
     SerialBT.setTimeout(50);
     Serial.printf("%s started.\n", HandSecurity::deviceName().c_str());
   } else {
+    // Not provisioned: no radio, no calibration, no motion. Only FACTORY commands
+    // on USB are served (see loop), so provisioning works even without 12 V.
     Serial.println("NOT PROVISIONED: Bluetooth off. Use FACTORY PROVISION <serial> <password>.");
+    return;
   }
 
   // Hand Calibration (messages on USB: no client is connected yet)
@@ -340,11 +343,16 @@ void enterSafeStateAfterLinkLoss() {
 }
 
 void loop() {
+  if (!HandSecurity::isProvisioned()) {
+    readChannel(Serial, HandSecurity::usbSession(), true);  // FACTORY commands only
+    return;
+  }
+
   HandSecurity::loop();
   if (HandSecurity::takeBluetoothLinkClosedEvent()) enterSafeStateAfterLinkLoss();
 
   readChannel(Serial, HandSecurity::usbSession(), true);
-  if (HandSecurity::isProvisioned()) readChannel(SerialBT, HandSecurity::bluetoothSession(), false);
+  readChannel(SerialBT, HandSecurity::bluetoothSession(), false);
 
   if (gFsmState == FSM::Control) {
     if (g_new_grasp_type != g_grasp_type) {
