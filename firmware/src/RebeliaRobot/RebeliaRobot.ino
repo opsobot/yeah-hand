@@ -21,7 +21,7 @@ Build environment used for the CE-assessed firmware:
 Command channels: Bluetooth Classic SPP and USB serial (115200), one command per line.
   Each channel has its own session: until "AUTH <password>" succeeds no other command is accepted.
   After power-on the hand does not move until it receives CALIBRATE (no automatic restart).
-  Normal commands:   CALIBRATE | POWER | BAR | MONKEY | PINCH1 | PINCH2 | <0..100> | ROS a b c d e
+  Normal commands:   CALIBRATE | TELEMETRY ON|OFF | POWER | BAR | MONKEY | PINCH1 | PINCH2 | <0..100> | ROS a b c d e
                      FI|FM|FR|FT|RT <0..100> | INFO <1..5> | POS | CONTROL
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
@@ -116,6 +116,9 @@ bool g_preparation = true;
 bool g_closure = false;
 bool g_serviceMode = false;
 bool g_calibrated = false;  // false after every power-on: no motion until CALIBRATE
+// Telemetry (ROSPOS, ROSLOAD, ...) per channel; TELEMETRY OFF/ON, back ON at every new connection.
+bool g_telemetryBt = true;
+bool g_telemetryUsb = true;
 
 // Deliberate calibration, the only way the hand starts moving after power-on.
 void doCalibrate() {
@@ -274,6 +277,14 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
 
   int a;
 
+  // Telemetry on/off for this channel
+  if (cmd == "TELEMETRY OFF" || cmd == "TELEMETRY ON") {
+    bool on = cmd == "TELEMETRY ON";
+    if (&session == &HandSecurity::bluetoothSession()) g_telemetryBt = on; else g_telemetryUsb = on;
+    reply(on ? "OK TELEMETRY ON" : "OK TELEMETRY OFF");
+    return;
+  }
+
   // Calibration on request (also allowed outside service mode)
   if (cmd == "CALIBRATE") {
     doCalibrate();
@@ -352,7 +363,7 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
     return;
   }
   if (cmd == "HELP") {
-    reply("Commands: CALIBRATE, POWER|BAR|MONKEY|PINCH1|PINCH2, 0..100, ROS a b c d e, FI|FM|FR|FT|RT n, INFO id, POS, CONTROL,");
+    reply("Commands: CALIBRATE, TELEMETRY ON|OFF, POWER|BAR|MONKEY|PINCH1|PINCH2, 0..100, ROS a b c d e, FI|FM|FR|FT|RT n, INFO id, POS, CONTROL,");
     reply("LOGOUT, SETPASS old new, PAIRING, UNPAIR ALL, SERVICE ON");
     return;
   }
@@ -382,9 +393,13 @@ void sendRosFeedback(Stream &out) {
   u8 volt[FingersController::SERVOS_SIZE];
   u8 temp[FingersController::SERVOS_SIZE];
   s16 ampr[FingersController::SERVOS_SIZE];
-  fc.readFactors(factors);
   fc.readFeedback(load, volt, temp, ampr);
-  out.printf("ROSPOS %d %d %d %d %d\n", factors[0], factors[1], factors[2], factors[3], factors[4]);
+  if (g_calibrated) {
+    fc.readFactors(factors);
+    out.printf("ROSPOS %d %d %d %d %d\n", factors[0], factors[1], factors[2], factors[3], factors[4]);
+  } else {
+    out.println("ROSPOS -1 -1 -1 -1 -1");  // positions unknown until CALIBRATE
+  }
   out.printf("ROSLOAD %d %d %d %d %d\n", load[0], load[1], load[2], load[3], load[4]);
   out.printf("ROSVOLT %d %d %d %d %d\n", volt[0], volt[1], volt[2], volt[3], volt[4]);
   out.printf("ROSTEMP %d %d %d %d %d\n", temp[0], temp[1], temp[2], temp[3], temp[4]);
@@ -442,6 +457,7 @@ void readChannel(Stream &in, HandSecurity::Session &session, bool isUsb) {
 // Bluetooth link lost: end the session and the service mode, start no new motion.
 // The hand holds its current position (an object being grasped is not released).
 void enterSafeStateAfterLinkLoss() {
+  g_telemetryBt = true;  // default for the next connection
   g_serviceMode = false;
   gFsmState = FSM::Control;
   g_closure = false;
@@ -506,8 +522,8 @@ void loop() {
   static auto t_prev_ros_feedback = millis();
   auto t_now_ros_feedback = millis();
   if (t_now_ros_feedback - t_prev_ros_feedback > 100) {
-    if (HandSecurity::bluetoothSession().authenticated) sendRosFeedback(SerialBT);
-    if (HandSecurity::usbSession().authenticated) sendRosFeedback(Serial);
+    if (HandSecurity::bluetoothSession().authenticated && g_telemetryBt) sendRosFeedback(SerialBT);
+    if (HandSecurity::usbSession().authenticated && g_telemetryUsb) sendRosFeedback(Serial);
     t_prev_ros_feedback = t_now_ros_feedback;
   }
 

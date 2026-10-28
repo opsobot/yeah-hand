@@ -295,6 +295,7 @@ int FingersController::getPosFromFactor(int finger_idx, int factor) {
 }
 
 int FingersController::getFactorFromPos(int finger_idx, s16 pos) {
+  if (MOTORS_POS_RANGE[finger_idx][RANGE_MIN] == MOTORS_POS_RANGE[finger_idx][RANGE_MAX]) return 0;  // not calibrated
   int factor = map(pos, MOTORS_POS_RANGE[finger_idx][RANGE_MIN], MOTORS_POS_RANGE[finger_idx][RANGE_MAX], 0, 100);
   return limit(factor, 0, 100);
 }
