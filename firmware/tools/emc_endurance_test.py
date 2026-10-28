@@ -39,13 +39,43 @@ class Hand:
         self.port_name = port
         self.password = password
         self.ser = None
+        self.calibrated_now = False  # True if the last connect() had to calibrate
 
     def connect(self) -> bool:
+        """Open, authenticate and, if the hand reports NOT CALIBRATED (fresh power-on
+        or reset), send CALIBRATE and wait for it to finish."""
+        self.calibrated_now = False
         try:
             self.close()
             self.ser = serial.Serial(self.port_name, 115200, timeout=0.1)
             time.sleep(1.0)
-            return self.command(f"AUTH {self.password}", "OK AUTH")
+            self.ser.reset_input_buffer()
+            self.ser.write(f"AUTH {self.password}\n".encode("ascii"))
+            self.ser.flush()
+            authed, not_calibrated = False, False
+            deadline = time.time() + ACK_TIMEOUT_S
+            while time.time() < deadline:
+                raw = self.ser.readline()
+                text = raw.decode("ascii", errors="replace").strip() if raw else ""
+                if text.startswith("OK AUTH"):
+                    authed = True
+                    deadline = time.time() + 1.0  # the NOT CALIBRATED notice follows
+                elif text.startswith("INFO NOT CALIBRATED"):
+                    not_calibrated = True
+                    break
+            if not authed:
+                return False
+            if not_calibrated:
+                self.ser.write(b"CALIBRATE\n")
+                self.ser.flush()
+                deadline = time.time() + 150  # calibration takes up to about 90 s
+                while time.time() < deadline:
+                    raw = self.ser.readline()
+                    if raw and raw.decode("ascii", errors="replace").strip().startswith("OK CALIBRATED"):
+                        self.calibrated_now = True
+                        return True
+                return False
+            return True
         except (serial.SerialException, OSError):
             return False
 
@@ -100,7 +130,7 @@ def main() -> int:
 
     log_name = args.log or f"emc_test_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
     hand = Hand(args.port, args.password)
-    stats = {"commands": 0, "missed_acks": 0, "link_losses": 0, "longest_outage_s": 0.0}
+    stats = {"commands": 0, "missed_acks": 0, "link_losses": 0, "resets": 0, "longest_outage_s": 0.0}
     max_temp = {}  # servo id -> highest temperature seen
     next_temp = time.time()
     start = time.time()
@@ -115,6 +145,8 @@ def main() -> int:
             print("STOP: cannot connect or authenticate (paired? right port? right password?)", file=sys.stderr)
             log.writerow([now(), "ABORT", "first connection failed"])
             return 1
+        if hand.calibrated_now:
+            log.writerow([now(), "CALIBRATED", "hand calibrated after power-on"])
 
         closed = False
         try:
@@ -140,6 +172,11 @@ def main() -> int:
                     outage = time.time() - lost_at
                     stats["longest_outage_s"] = max(stats["longest_outage_s"], outage)
                     log.writerow([now(), "RECONNECTED", f"outage {outage:.0f} s"])
+                    if hand.calibrated_now:
+                        # The hand had lost its calibration: it restarted (reset or power loss).
+                        stats["resets"] += 1
+                        log.writerow([now(), "RESET_DETECTED", "hand reported NOT CALIBRATED, recalibrated"])
+                        print(f"{now()} RESET detected: the hand had restarted, recalibrated")
                 else:
                     closed = not closed
 
@@ -176,6 +213,7 @@ def main() -> int:
     print(f"Commands sent:   {stats['commands']}")
     print(f"Missed replies:  {stats['missed_acks']}")
     print(f"Link losses:     {stats['link_losses']} (longest outage {stats['longest_outage_s']:.0f} s)")
+    print(f"Hand resets:     {stats['resets']}")
     if max_temp:
         print("Max servo temp:  " + ", ".join(f"servo {k}: {v} C" for k, v in sorted(max_temp.items())))
     print(f"Log:             {log_name}")

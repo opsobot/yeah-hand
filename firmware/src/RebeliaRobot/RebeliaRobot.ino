@@ -20,7 +20,8 @@ Build environment used for the CE-assessed firmware:
 
 Command channels: Bluetooth Classic SPP and USB serial (115200), one command per line.
   Each channel has its own session: until "AUTH <password>" succeeds no other command is accepted.
-  Normal commands:   POWER | BAR | MONKEY | PINCH1 | PINCH2 | <0..100> | ROS a b c d e
+  After power-on the hand does not move until it receives CALIBRATE (no automatic restart).
+  Normal commands:   CALIBRATE | POWER | BAR | MONKEY | PINCH1 | PINCH2 | <0..100> | ROS a b c d e
                      FI|FM|FR|FT|RT <0..100> | INFO <1..5> | POS | CONTROL
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
@@ -101,9 +102,10 @@ void setup() {
   }
   Serial.printf("Power preset: %s\n", fc.powerPresetName());
 
-  // Hand Calibration (messages on USB: no client is connected yet)
+  // No movement at power-on (Machinery Directive Annex I 1.2.3 / 1.2.6): the hand
+  // stays still until it receives CALIBRATE from an authenticated client.
   fc.setOutput(&Serial);
-  fc.calibrateHand();
+  Serial.println("Hand ready, NOT CALIBRATED: send AUTH <password>, then CALIBRATE.");
 }
 
 FingersController::GraspType g_grasp_type = FingersController::GraspType::MONKEY;
@@ -113,6 +115,23 @@ int g_newClosurePercent = 0;
 bool g_preparation = true;
 bool g_closure = false;
 bool g_serviceMode = false;
+bool g_calibrated = false;  // false after every power-on: no motion until CALIBRATE
+
+// Deliberate calibration, the only way the hand starts moving after power-on.
+void doCalibrate() {
+  reply("OK CALIBRATE: calibrating, keep clear of the fingers");
+  fc.calibrateHand();
+  g_calibrated = true;
+  g_preparation = true;  // then move to the selected grasp's start position
+  reply("OK CALIBRATED");
+}
+
+// Motion commands are refused until the hand is calibrated.
+bool refuseIfNotCalibrated() {
+  if (g_calibrated) return false;
+  reply("ERR NOT CALIBRATED: send CALIBRATE first");
+  return true;
+}
 enum class FSM {
   Control,
   TendonInstall,
@@ -205,8 +224,7 @@ bool processServiceCommand(const String &cmd) {
     gFsmState = FSM::Testing;
     reply("OK TEST");
   } else if (cmd == "CALIBRATE") {
-    fc.calibrateHand();
-    reply("OK CALIBRATE");
+    doCalibrate();
   } else if (parseOneArg(cmd, "SETCENTER ", 1, 5, a)) {
     fc.setCenterOfRange(a);
   } else if (cmd == "SUPPLY") {
@@ -242,7 +260,12 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
   fc.setOutput(session.out);
 
   // Authentication commands are always evaluated first.
-  if (HandSecurity::handleCommand(cmd, session)) return;
+  if (HandSecurity::handleCommand(cmd, session)) {
+    if (cmd.startsWith("AUTH ") && session.authenticated && !g_calibrated) {
+      reply("INFO NOT CALIBRATED: the hand will not move until you send CALIBRATE");
+    }
+    return;
+  }
 
   if (!session.authenticated) {
     reply("ERR AUTH REQUIRED");
@@ -251,9 +274,16 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
 
   int a;
 
+  // Calibration on request (also allowed outside service mode)
+  if (cmd == "CALIBRATE") {
+    doCalibrate();
+    return;
+  }
+
   // Grasp selection (exact match)
   FingersController::GraspType grasp = FingersController::getGraspTypeByString(cmd);
   if (grasp != FingersController::GraspType::_MAX && cmd == FingersController::getGraspStringByType(grasp)) {
+    if (refuseIfNotCalibrated()) return;
     g_new_grasp_type = grasp;
     reply("OK GRASP");
     return;
@@ -261,6 +291,7 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
 
   // Closure percentage: the whole line must be an integer 0..100
   if (parseIntStrict(cmd, 0, 100, a)) {
+    if (refuseIfNotCalibrated()) return;
     g_newClosurePercent = a;
     g_out->printf("OK CLOSURE %d\n", a);
     return;
@@ -279,6 +310,7 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
       reply("ERR ROS");
       return;
     }
+    if (refuseIfNotCalibrated()) return;
     const u8 IDN = 5;
     FingersController::VectorIdx IDXs[IDN] = { FingersController::VectorIdx::Index, FingersController::VectorIdx::Middle, FingersController::VectorIdx::Ring, FingersController::VectorIdx::Thumb, FingersController::VectorIdx::ThumbRot };
     u8 Factor[IDN] = { (u8)v[0], (u8)v[1], (u8)v[2], (u8)v[3], (u8)v[4] };
@@ -289,11 +321,11 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
   }
 
   // Single finger moves (factor 0..100)
-  if (parseOneArg(cmd, "FI ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::Index, a); return; }
-  if (parseOneArg(cmd, "FM ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::Middle, a); return; }
-  if (parseOneArg(cmd, "FR ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::Ring, a); return; }
-  if (parseOneArg(cmd, "FT ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::Thumb, a); return; }
-  if (parseOneArg(cmd, "RT ", 0, 100, a)) { moveFinger(FingersController::VectorIdx::ThumbRot, a); return; }
+  if (parseOneArg(cmd, "FI ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::Index, a); return; }
+  if (parseOneArg(cmd, "FM ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::Middle, a); return; }
+  if (parseOneArg(cmd, "FR ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::Ring, a); return; }
+  if (parseOneArg(cmd, "FT ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::Thumb, a); return; }
+  if (parseOneArg(cmd, "RT ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::ThumbRot, a); return; }
 
   // Read-only commands
   if (parseOneArg(cmd, "INFO ", 1, 5, a)) {
@@ -320,7 +352,7 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
     return;
   }
   if (cmd == "HELP") {
-    reply("Commands: POWER|BAR|MONKEY|PINCH1|PINCH2, 0..100, ROS a b c d e, FI|FM|FR|FT|RT n, INFO id, POS, CONTROL,");
+    reply("Commands: CALIBRATE, POWER|BAR|MONKEY|PINCH1|PINCH2, 0..100, ROS a b c d e, FI|FM|FR|FT|RT n, INFO id, POS, CONTROL,");
     reply("LOGOUT, SETPASS old new, PAIRING, UNPAIR ALL, SERVICE ON");
     return;
   }
@@ -430,7 +462,7 @@ void loop() {
   readChannel(Serial, HandSecurity::usbSession(), true);
   readChannel(SerialBT, HandSecurity::bluetoothSession(), false);
 
-  if (gFsmState == FSM::Control) {
+  if (gFsmState == FSM::Control && g_calibrated) {  // no motion before CALIBRATE
     if (g_new_grasp_type != g_grasp_type) {
       auto full_cmd = FingersController::getGraspStringByType(g_new_grasp_type);
       String msg = full_cmd + " GRASP ENABLED";
