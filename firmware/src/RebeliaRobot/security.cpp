@@ -82,10 +82,16 @@ bool isValidSerial(const String &sn) {
   return true;
 }
 
+void printAddr(const char *prefix, const uint8_t *a) {
+  Serial.printf("%s%02X:%02X:%02X:%02X:%02X:%02X\n", prefix, a[0], a[1], a[2], a[3], a[4], a[5]);
+}
+
 void snapshotTrustedPeers() {
   int n = MAX_TRUSTED_PEERS;
   if (esp_bt_gap_get_bond_device_list(&n, s_trustedPeers) != ESP_OK) n = 0;
   s_trustedCount = n;
+  Serial.printf("BT: pairing window closed, %d trusted device(s)\n", n);
+  for (int i = 0; i < n; i++) printAddr("BT:   trusted ", s_trustedPeers[i]);
 }
 
 bool isTrustedPeer(const esp_bd_addr_t addr) {
@@ -141,12 +147,16 @@ void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
       s_btSession.authenticated = false;  // every connection starts unauthenticated
       if (!s_pairingOpen && !isTrustedPeer(param->srv_open.rem_bda)) {
         // Device bonded outside the pairing window: refuse it and forget the bond.
+        printAddr("BT: REJECTED, not trusted (bonded outside the pairing window): ", param->srv_open.rem_bda);
         esp_spp_disconnect(param->srv_open.handle);
         esp_bt_gap_remove_bond_device(param->srv_open.rem_bda);
+      } else {
+        printAddr(s_pairingOpen ? "BT: connected (pairing window open): " : "BT: connected (trusted): ", param->srv_open.rem_bda);
       }
       break;
 
     case ESP_SPP_CLOSE_EVT:
+      Serial.println("BT: disconnected");
       s_btSession.authenticated = false;
       s_btLinkClosed = true;
       break;
