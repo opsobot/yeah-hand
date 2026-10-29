@@ -44,7 +44,7 @@ static bool isClose(int value, int target, int tolerance) {
 
 struct SafetyLimits {
   int MAX_LOAD;
-  int TF_MAX_LOAD;
+  int TF_MAX_LOAD;  // thumb flexion
   int OVER_CURRENT;
   int OVER_LOAD;
   int OVER_TEMP;
@@ -85,7 +85,10 @@ public:
   static GraspType getGraspTypeByString(const String& cmd);
   static String getGraspStringByType(FingersController::GraspType type);
 
-  FingersController(BluetoothSerial* _serialBT);
+  FingersController(Stream* output);
+
+  // Stream that receives messages (the channel of the command being executed).
+  void setOutput(Stream* output) { SerialBT = output; }
   ~FingersController();
 
   // Setup
@@ -239,22 +242,47 @@ public:
 private:
   SafetyLimits limits{
     .MAX_LOAD = 400,      // * 0.02 kg·cm * 400 = 8 kg·cm
-    .TF_MAX_LOAD = 600,      // * 0.02 kg·cm * 600 = 12 kg·cm
+    .TF_MAX_LOAD = 600,   // * 0.02 kg·cm * 600 = 12 kg·cm (thumb flexion)
     .OVER_CURRENT = 150,  // * 6.5 mA * 150 = 975 mA
     .OVER_LOAD = 600,     // * 0.02 kg·cm * 600 = 12 kg·cm
     .OVER_TEMP = 60       // * 1 °C * 60 = 60 °C
   };
 
-  int lastValidTemp[SERVOS_SIZE];
+  int lastValidTemp[SERVOS_SIZE] = { -1, -1, -1, -1, -1 };  // index = servo id - 1
+  bool safetyTripped[SERVOS_SIZE] = { false, false, false, false, false };
 
 public:
   void safetyFeature();
 
 private:
   SMS_STS st;
-  BluetoothSerial* SerialBT;
+  Stream* SerialBT;  // current output channel (Bluetooth or USB)
+
+public:
+  // Power presets: torque limits that keep the hand's supply current within a budget.
+  // Each preset is validated by measurement before it is added (see technical file).
+  struct PowerPreset {
+    const char *name;     // nominal max supply current at 12 V
+    SafetyLimits limits;  // every limit is set by the preset
+  };
+  // Fields: MAX_LOAD, TF_MAX_LOAD (thumb flexion), OVER_CURRENT, OVER_LOAD, OVER_TEMP
+  // Units: load 0.02 kg·cm, current 6.5 mA, temperature 1 °C
+  static constexpr PowerPreset POWER_PRESETS[] = {
+    { "5A", { 400, 600, 150, 600, 60 } },  // standard, factory default
+    { "1A", { 200, 200, 150, 250, 60 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
+  };
+  static constexpr int POWER_PRESETS_COUNT = sizeof(POWER_PRESETS) / sizeof(POWER_PRESETS[0]);
+  static const PowerPreset *findPowerPreset(const String &name);
+  // Applies the limits of a preset (call before calibrateHand()). False if the name is unknown.
+  bool setPowerPreset(const String &name);
+  const char *powerPresetName() const { return power_preset_name; }
+  const SafetyLimits &safetyLimits() const { return limits; }
+
+  // Set from the model stored at provisioning, before calibrateHand().
+  void setHandSide(HandSide side) { hand_side = side; }
 
 private:
-  // ** !! SET THE HAND SIDE BEFORE PROGRAMMING !! **
-  const HandSide hand_side = HandSide::LeftSide;
+  HandSide hand_side = HandSide::LeftSide;
+  const char *power_preset_name = "5A";
+  u16 respectTorqueLimits(u8 ID, u16 torque) const;
 };

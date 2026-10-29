@@ -29,9 +29,9 @@ FingersController::GraspType FingersController::getGraspTypeByString(const Strin
     return FingersController::GraspType::BAR;
   } else if (cmd.substring(0, 6) == "MONKEY") {
     return FingersController::GraspType::MONKEY;
-  } else if (cmd.substring(0, 5) == "PINCH1") {
+  } else if (cmd.substring(0, 6) == "PINCH1") {
     return FingersController::GraspType::PINCH1;
-  } else if (cmd.substring(0, 11) == "PINCH2") {
+  } else if (cmd.substring(0, 6) == "PINCH2") {
     return FingersController::GraspType::PINCH2;
   }
 
@@ -70,8 +70,8 @@ void FingersController::enableTorque(u8 ID, bool enable) {
   st.EnableTorque(ID, enable);
 }
 
-FingersController::FingersController(BluetoothSerial* _serialBT)
-  : SerialBT(_serialBT) {
+FingersController::FingersController(Stream* output)
+  : SerialBT(output) {
   Serial1.begin(1000000, SERIAL_8N1, S_RXD, S_TXD);
   st.pSerial = &Serial1;
   while (!Serial1) {
@@ -295,6 +295,7 @@ int FingersController::getPosFromFactor(int finger_idx, int factor) {
 }
 
 int FingersController::getFactorFromPos(int finger_idx, s16 pos) {
+  if (MOTORS_POS_RANGE[finger_idx][RANGE_MIN] == MOTORS_POS_RANGE[finger_idx][RANGE_MAX]) return 0;  // not calibrated
   int factor = map(pos, MOTORS_POS_RANGE[finger_idx][RANGE_MIN], MOTORS_POS_RANGE[finger_idx][RANGE_MAX], 0, 100);
   return limit(factor, 0, 100);
 }
@@ -739,13 +740,30 @@ void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc)
   moveUntilLoadLimitHit(IDN, IDs, Pos, Speed, Acc);
 }
 
-void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
-  u16 limitedMaxTorque = 0;
-  if (ID != 4) {  // it's not the thumb flexion
-    limitedMaxTorque = (u16)min(limits.MAX_LOAD, (int)maxTorque);
-  } else {  // it's the thumb flexion
-    limitedMaxTorque = (u16)min(limits.TF_MAX_LOAD, (int)maxTorque);
+const FingersController::PowerPreset *FingersController::findPowerPreset(const String &name) {
+  for (int i = 0; i < POWER_PRESETS_COUNT; i++) {
+    if (name == POWER_PRESETS[i].name) return &POWER_PRESETS[i];
   }
+  return nullptr;
+}
+
+bool FingersController::setPowerPreset(const String &name) {
+  const PowerPreset *p = findPowerPreset(name);
+  if (!p) return false;
+  limits = p->limits;
+  power_preset_name = p->name;
+  return true;
+}
+
+// Torque limit of one servo, capped by the active power preset.
+u16 FingersController::respectTorqueLimits(u8 ID, u16 torque) const {
+  int cap = (ID == THUMB_ID) ? limits.TF_MAX_LOAD : limits.MAX_LOAD;
+  return (u16)min(cap, (int)torque);
+}
+
+void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
+
+  auto limitedMaxTorque = respectTorqueLimits(ID, maxTorque);
   st.EnableTorque(ID, 0);  // Disable torque
   st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, limitedMaxTorque);
   st.EnableTorque(ID, 1);  // Enable with limit
@@ -756,14 +774,8 @@ void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque
   u8 bytes[2 * IDN];  // 5 servos × 2 bytes each
 
   // Convert to bytes
-  for (int i = 0; i < 5; i++) {
-    u16 maxTorque;
-    auto ID = IDs[i];
-    if (ID != 4) {  // it's not the thumb flexion
-      maxTorque = (u16)min(limits.MAX_LOAD, (int)MaxTorque[i]);
-    } else {  // it's the thumb flexion
-      maxTorque = (u16)min(limits.TF_MAX_LOAD, (int)MaxTorque[i]);
-    }
+  for (int i = 0; i < IDN; i++) {
+    auto maxTorque = respectTorqueLimits(IDs[i], MaxTorque[i]);
     bytes[i * 2] = maxTorque & 0xFF;             // Low byte
     bytes[i * 2 + 1] = (maxTorque >> 8) & 0xFF;  // High byte
   }
@@ -783,8 +795,15 @@ void FingersController::setRangeByCurrentPos(VectorIdx IDX, u8 rangeIndex) {
 }
 
 // Safety
+// Servo names by id (1..5), for messages.
+static const char *servoName(int id) {
+  static const char *NAMES[] = { "?", "index flexion", "middle flexion", "ring+little flexion", "thumb flexion", "thumb rotation" };
+  return (id >= 1 && id <= 5) ? NAMES[id] : NAMES[0];
+}
+
 void FingersController::safetyFeature() {
   for (int id = 1; id <= FingersController::SERVOS_SIZE; id++) {
+    const int i = id - 1;
     auto c = readCurrent(id);
     auto l = readLoad(id);
     auto t = readTemper(id);
@@ -793,22 +812,36 @@ void FingersController::safetyFeature() {
     bool tempValueInsideRange = (t >= 0 && t <= 120);
     bool tempValueIsValid = false;
     if (tempValueInsideRange) {
-      int tPrev = lastValidTemp[id];
+      int tPrev = lastValidTemp[i];
       if (tPrev >= 0 && abs(t - tPrev) > 5) {
         tempValueIsValid = false;
       } else {
         tempValueIsValid = true;
-        lastValidTemp[id] = t;
+        lastValidTemp[i] = t;
       }
     }
 
-    auto fault = c >= limits.OVER_CURRENT || l >= limits.OVER_LOAD || tempValueInsideRange && tempValueIsValid && t >= limits.OVER_TEMP;
+    bool overCurrent = c >= limits.OVER_CURRENT;
+    bool overLoad = l >= limits.OVER_LOAD;
+    bool overTemp = tempValueInsideRange && tempValueIsValid && t >= limits.OVER_TEMP;
+    bool fault = overCurrent || overLoad || overTemp;
 
     if (fault) {
       enableTorque(id, false);
-      SerialBT->printf("Safety: disabled id %d (C:%d L:%d T:%d)!!\n", id, c, l, t);
+      if (!safetyTripped[i]) {  // report once, when the fault starts
+        SerialBT->printf("SAFETY: servo %d (%s) torque OFF, preset %s:", id, servoName(id), power_preset_name);
+        if (overCurrent) SerialBT->printf(" CURRENT %d mA >= limit %d mA (OVER_CURRENT %d);", (int)(c * 6.5), (int)(limits.OVER_CURRENT * 6.5), limits.OVER_CURRENT);
+        if (overLoad) SerialBT->printf(" LOAD %d >= limit %d (OVER_LOAD, torque cap MAX_LOAD %d / TF_MAX_LOAD %d);", l, limits.OVER_LOAD, limits.MAX_LOAD, limits.TF_MAX_LOAD);
+        if (overTemp) SerialBT->printf(" TEMPERATURE %d C >= limit %d C (OVER_TEMP);", t, limits.OVER_TEMP);
+        SerialBT->println();
+        safetyTripped[i] = true;
+      }
     } else {
       enableTorque(id, true);
+      if (safetyTripped[i]) {
+        SerialBT->printf("SAFETY: servo %d (%s) torque ON again (current %d mA, load %d, temperature %d C)\n", id, servoName(id), (int)(c * 6.5), l, t);
+        safetyTripped[i] = false;
+      }
     }
   }
 }
