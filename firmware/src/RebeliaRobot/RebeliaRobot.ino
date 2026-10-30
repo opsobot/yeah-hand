@@ -108,20 +108,28 @@ void processStringCmd(const String& cmd) {
         // Incomplete line: log and discard
         if (BLUETOOTH && DEBUG) SerialBT.printf("BAD ROS CMD (tokens=%d): %s\n", n, cmd.c_str());
       } else {
-        // range check
+        // range check: out-of-range values are replaced with the current finger position
+        u8 currentFactors[FingersController::SERVOS_SIZE];
+        bool currentRead = false;
         for (int i = 0; i < 5; ++i) {
           if (v[i] < 0 || v[i] > 100) {
-            if (BLUETOOTH && DEBUG) SerialBT.printf("OUT OF RANGE ROS CMD: %s\n", cmd.c_str());
-          } else {
-            const u8 IDN = 5;
-            FingersController::VectorIdx IDXs[IDN] = { FingersController::VectorIdx::Index, FingersController::VectorIdx::Middle, FingersController::VectorIdx::Ring, FingersController::VectorIdx::Thumb, FingersController::VectorIdx::ThumbRot };
-            u8 Factor[IDN] = { v[0], v[1], v[2], v[3], v[4] };
-            u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
-            u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
-            fc.moveUntilLoadLimitHit(IDN, IDXs, Factor, Speed, Acc); // sync
-            //fc.move(IDN, IDXs, Factor, Speed, Acc); // async
+            if (BLUETOOTH && DEBUG) SerialBT.printf("OUT OF RANGE ROS CMD (idx %d): %s\n", i, cmd.c_str());
+            if (!currentRead) {
+              fc.readFactors(currentFactors);  // order: Index, Middle, Ring, Thumb, ThumbRot
+              currentRead = true;
+            }
+            v[i] = currentFactors[i];
           }
         }
+
+        // single move, after the check
+        const u8 IDN = 5;
+        FingersController::VectorIdx IDXs[IDN] = { FingersController::VectorIdx::Index, FingersController::VectorIdx::Middle, FingersController::VectorIdx::Ring, FingersController::VectorIdx::Thumb, FingersController::VectorIdx::ThumbRot };
+        u8 Factor[IDN] = { (u8)v[0], (u8)v[1], (u8)v[2], (u8)v[3], (u8)v[4] };
+        u16 Speed[IDN] = { 3000, 3000, 3000, 3000, 3000 };
+        u8 Acc[IDN] = { 250, 250, 250, 250, 250 };
+        fc.moveUntilLoadLimitHit(IDN, IDXs, Factor, Speed, Acc); // sync
+        //fc.move(IDN, IDXs, Factor, Speed, Acc); // async
       }
     } else if (cmd.substring(0, 7) == "INSTALL") {
       gFsmState = FSM::TendonInstall;
