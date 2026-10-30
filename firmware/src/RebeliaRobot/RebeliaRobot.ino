@@ -110,14 +110,10 @@ void processStringCmd(const String& cmd) {
       } else {
         // range check: out-of-range values are replaced with the current finger position
         u8 currentFactors[FingersController::SERVOS_SIZE];
-        bool currentRead = false;
+        fc.readFactors(currentFactors);  // always read (constant time); order: Index, Middle, Ring, Thumb, ThumbRot
         for (int i = 0; i < 5; ++i) {
           if (v[i] < 0 || v[i] > 100) {
             if (BLUETOOTH && DEBUG) SerialBT.printf("OUT OF RANGE ROS CMD (idx %d): %s\n", i, cmd.c_str());
-            if (!currentRead) {
-              fc.readFactors(currentFactors);  // order: Index, Middle, Ring, Thumb, ThumbRot
-              currentRead = true;
-            }
             v[i] = currentFactors[i];
           }
         }
