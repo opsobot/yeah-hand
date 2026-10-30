@@ -33,6 +33,10 @@ BluetoothSerial SerialBT;
 SMS_STS st;
 FingersController fc(&SerialBT);
 
+// Last valid factors received with the ROS command (order: Index, Middle, Ring, Thumb, ThumbRot).
+// Used to replace out-of-range values without reading the servos.
+u8 g_lastRosFactors[FingersController::SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
+
 void servoIdDiscovery() {
   SerialBT.println("Servo ID Discovery");
   for (int i = 0; i <= 5; i++) {
@@ -59,6 +63,9 @@ void setup() {
 
   // Hand Calibration
   fc.calibrateHand();
+
+  // Initialise the last ROS factors with the post-calibration position (single servo read, at boot only)
+  fc.readFactors(g_lastRosFactors);
 }
 
 FingersController::GraspType g_grasp_type = FingersController::GraspType::MONKEY;
@@ -108,14 +115,13 @@ void processStringCmd(const String& cmd) {
         // Incomplete line: log and discard
         if (BLUETOOTH && DEBUG) SerialBT.printf("BAD ROS CMD (tokens=%d): %s\n", n, cmd.c_str());
       } else {
-        // range check: out-of-range values are replaced with the current finger position
-        u8 currentFactors[FingersController::SERVOS_SIZE];
-        fc.readFactors(currentFactors);  // always read (constant time); order: Index, Middle, Ring, Thumb, ThumbRot
+        // range check: out-of-range values are replaced with the last valid ROS factor (no servo read)
         for (int i = 0; i < 5; ++i) {
           if (v[i] < 0 || v[i] > 100) {
             if (BLUETOOTH && DEBUG) SerialBT.printf("OUT OF RANGE ROS CMD (idx %d): %s\n", i, cmd.c_str());
-            v[i] = currentFactors[i];
+            v[i] = g_lastRosFactors[i];
           }
+          g_lastRosFactors[i] = (u8)v[i];
         }
 
         // single move, after the check
