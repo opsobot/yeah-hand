@@ -253,8 +253,16 @@ private:
 
   int lastValidTemp[SERVOS_SIZE] = { -1, -1, -1, -1, -1 };  // index = servo id - 1
   bool safetyTripped[SERVOS_SIZE] = { false, false, false, false, false };
+  bool hotWarned[SERVOS_SIZE] = { false, false, false, false, false };
 
 public:
+  // Early warning: WARN_TEMP_MARGIN degrees below OVER_TEMP the hand sends "WARN HOT"
+  // (once, with 3 C hysteresis) and refuses new closing commands ("ERR HOT"), so the
+  // robot can put the object down before the OVER_TEMP torque cut.
+  static const int WARN_TEMP_MARGIN = 10;
+  int warnTemp() const { return limits.OVER_TEMP - WARN_TEMP_MARGIN; }
+  // Id of the hottest servo at or above warnTemp(), 0 if none; its temperature in *temp.
+  int hotServo(int *temp) const;
   void safetyFeature();
 
   // Holding phase: when the fingers stop moving after a movement, the torque limit of

@@ -808,6 +808,18 @@ static const char *servoName(int id) {
   return (id >= 1 && id <= 5) ? NAMES[id] : NAMES[0];
 }
 
+int FingersController::hotServo(int *temp) const {
+  int hot = 0, hotT = -1;
+  for (int i = 0; i < SERVOS_SIZE; i++) {
+    if (hotWarned[i] && lastValidTemp[i] > hotT) {
+      hot = i + 1;
+      hotT = lastValidTemp[i];
+    }
+  }
+  if (temp) *temp = hotT;
+  return hot;
+}
+
 void FingersController::safetyFeature() {
   for (int id = 1; id <= FingersController::SERVOS_SIZE; id++) {
     const int i = id - 1;
@@ -825,6 +837,18 @@ void FingersController::safetyFeature() {
       } else {
         tempValueIsValid = true;
         lastValidTemp[i] = t;
+      }
+    }
+
+    // Early temperature warning (before the OVER_TEMP torque cut)
+    if (tempValueInsideRange && tempValueIsValid) {
+      if (!hotWarned[i] && t >= warnTemp()) {
+        SerialBT->printf("WARN HOT: servo %d (%s) %d C, torque cut at %d C: put the object down, new closing commands refused\n",
+                         id, servoName(id), t, limits.OVER_TEMP);
+        hotWarned[i] = true;
+      } else if (hotWarned[i] && t <= warnTemp() - 3) {
+        SerialBT->printf("INFO COOL: servo %d (%s) %d C, closing commands allowed again\n", id, servoName(id), t);
+        hotWarned[i] = false;
       }
     }
 

@@ -135,6 +135,22 @@ bool refuseIfNotCalibrated() {
   reply("ERR NOT CALIBRATED: send CALIBRATE first");
   return true;
 }
+
+// New closing commands are refused while a servo is hot (WARN HOT), so a grip is never
+// started that the OVER_TEMP cut could interrupt. Opening is always allowed.
+bool refuseIfHot(bool closing) {
+  if (!closing) return false;
+  int t;
+  int id = fc.hotServo(&t);
+  if (id == 0) return false;
+  char msg[120];
+  snprintf(msg, sizeof(msg), "ERR HOT: servo %d %d C (warning at %d C), let the hand cool, opening still allowed", id, t, fc.warnTemp());
+  reply(msg);
+  return true;
+}
+int g_lastRos[5] = { 0, 0, 0, 0, 0 };
+int g_lastFinger[5] = { 0, 0, 0, 0, 0 };
+
 enum class FSM {
   Control,
   TendonInstall,
@@ -310,6 +326,7 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
   // Closure percentage: the whole line must be an integer 0..100
   if (parseIntStrict(cmd, 0, 100, a)) {
     if (refuseIfNotCalibrated()) return;
+    if (refuseIfHot(a > g_newClosurePercent)) return;
     g_newClosurePercent = a;
     g_out->printf("OK CLOSURE %d\n", a);
     return;
@@ -329,6 +346,12 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
       return;
     }
     if (refuseIfNotCalibrated()) return;
+    bool rosCloses = false;
+    for (int i = 0; i < 5; ++i) {
+      if (v[i] > g_lastRos[i]) rosCloses = true;
+    }
+    if (refuseIfHot(rosCloses)) return;
+    for (int i = 0; i < 5; ++i) g_lastRos[i] = v[i];
     const u8 IDN = 5;
     FingersController::VectorIdx IDXs[IDN] = { FingersController::VectorIdx::Index, FingersController::VectorIdx::Middle, FingersController::VectorIdx::Ring, FingersController::VectorIdx::Thumb, FingersController::VectorIdx::ThumbRot };
     u8 Factor[IDN] = { (u8)v[0], (u8)v[1], (u8)v[2], (u8)v[3], (u8)v[4] };
@@ -339,11 +362,21 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
   }
 
   // Single finger moves (factor 0..100)
-  if (parseOneArg(cmd, "FI ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::Index, a); return; }
-  if (parseOneArg(cmd, "FM ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::Middle, a); return; }
-  if (parseOneArg(cmd, "FR ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::Ring, a); return; }
-  if (parseOneArg(cmd, "FT ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::Thumb, a); return; }
-  if (parseOneArg(cmd, "RT ", 0, 100, a)) { if (refuseIfNotCalibrated()) return; moveFinger(FingersController::VectorIdx::ThumbRot, a); return; }
+  {
+    static const char *FCMD[5] = { "FI ", "FM ", "FR ", "FT ", "RT " };
+    static const FingersController::VectorIdx FIDX[5] = { FingersController::VectorIdx::Index, FingersController::VectorIdx::Middle,
+                                                          FingersController::VectorIdx::Ring, FingersController::VectorIdx::Thumb,
+                                                          FingersController::VectorIdx::ThumbRot };
+    for (int f = 0; f < 5; ++f) {
+      if (parseOneArg(cmd, FCMD[f], 0, 100, a)) {
+        if (refuseIfNotCalibrated()) return;
+        if (refuseIfHot(a > g_lastFinger[f])) return;
+        g_lastFinger[f] = a;
+        moveFinger(FIDX[f], a);
+        return;
+      }
+    }
+  }
 
   // Read-only commands
   if (parseOneArg(cmd, "INFO ", 1, 5, a)) {
