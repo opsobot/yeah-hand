@@ -48,6 +48,7 @@ struct SafetyLimits {
   int OVER_CURRENT;
   int OVER_LOAD;
   int OVER_TEMP;
+  int HOLD_LOAD;  // torque limit once a movement is finished (holding phase), limits heat
 };
 
 class FingersController {
@@ -241,11 +242,13 @@ public:
   // Safety
 private:
   SafetyLimits limits{
-    .MAX_LOAD = 400,      // * 0.02 kg·cm * 400 = 8 kg·cm
-    .TF_MAX_LOAD = 600,   // * 0.02 kg·cm * 600 = 12 kg·cm (thumb flexion)
+    // Defaults = preset 5A (setPowerPreset() overwrites them at start-up)
+    .MAX_LOAD = 330,      // * 0.02 kg·cm * 330 = 6.6 kg·cm
+    .TF_MAX_LOAD = 300,   // * 0.02 kg·cm * 300 = 6 kg·cm (thumb flexion)
     .OVER_CURRENT = 150,  // * 6.5 mA * 150 = 975 mA
     .OVER_LOAD = 600,     // * 0.02 kg·cm * 600 = 12 kg·cm
-    .OVER_TEMP = 60       // * 1 °C * 60 = 60 °C
+    .OVER_TEMP = 60,      // * 1 °C * 60 = 60 °C
+    .HOLD_LOAD = 200      // * 0.02 kg·cm * 200 = 4 kg·cm (holding phase)
   };
 
   int lastValidTemp[SERVOS_SIZE] = { -1, -1, -1, -1, -1 };  // index = servo id - 1
@@ -253,6 +256,12 @@ private:
 
 public:
   void safetyFeature();
+
+  // Holding phase: when the fingers stop moving after a movement, the torque limit of
+  // every servo drops to HOLD_LOAD (if lower than its working torque); it is restored
+  // before the next movement. Call holdUpdate() from the main loop.
+  void holdUpdate();
+  bool holding() const { return hold_active; }
 
 private:
   SMS_STS st;
@@ -265,11 +274,11 @@ public:
     const char *name;     // nominal max supply current at 12 V
     SafetyLimits limits;  // every limit is set by the preset
   };
-  // Fields: MAX_LOAD, TF_MAX_LOAD (thumb flexion), OVER_CURRENT, OVER_LOAD, OVER_TEMP
+  // Fields: MAX_LOAD, TF_MAX_LOAD (thumb flexion), OVER_CURRENT, OVER_LOAD, OVER_TEMP, HOLD_LOAD
   // Units: load 0.02 kg·cm, current 6.5 mA, temperature 1 °C
   static constexpr PowerPreset POWER_PRESETS[] = {
-    { "5A", { 400, 600, 150, 600, 60 } },  // standard, factory default
-    { "1A", { 200, 200, 150, 250, 60 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
+    { "5A", { 330, 300, 150, 600, 60, 200 } },  // standard, factory default (limits of the Oct 2025 endurance test)
+    { "1A", { 200, 200, 150, 250, 60, 200 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
   };
   static constexpr int POWER_PRESETS_COUNT = sizeof(POWER_PRESETS) / sizeof(POWER_PRESETS[0]);
   static const PowerPreset *findPowerPreset(const String &name);
@@ -285,4 +294,13 @@ private:
   HandSide hand_side = HandSide::LeftSide;
   const char *power_preset_name = "5A";
   u16 respectTorqueLimits(u8 ID, u16 torque) const;
+
+  // Holding phase state
+  u16 work_torque[SERVOS_SIZE + 1] = { 0, 0, 0, 0, 0, 0 };  // working torque per servo id (1..5)
+  bool hold_pending = false;    // a movement was started, hold when it stops
+  bool hold_active = false;     // hold torque applied
+  unsigned long hold_check_at = 0;
+  void writeTorqueLimits(u8 IDN, u8 IDs[], const u16 torque[]);  // no torque off/on
+  void restoreWorkTorque(u8 IDN, u8 IDs[]);
+  void applyHoldTorque();
 };

@@ -711,11 +711,15 @@ void FingersController::move(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Sp
 }
 
 void FingersController::move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
+  restoreWorkTorque(IDN, IDs);
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
+  hold_pending = true;  // hold once the fingers stop (see holdUpdate)
+  hold_check_at = millis() + 300;
 }
 
 void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
 
+  restoreWorkTorque(IDN, IDs);
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
   delay(100);
   unsigned long t1 = millis();
@@ -729,6 +733,7 @@ void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 S
     }
   }
   setCurPosAsTarget(IDN, IDs);
+  applyHoldTorque();
 }
 
 void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc) {
@@ -764,6 +769,7 @@ u16 FingersController::respectTorqueLimits(u8 ID, u16 torque) const {
 void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
 
   auto limitedMaxTorque = respectTorqueLimits(ID, maxTorque);
+  if (ID >= 1 && ID <= SERVOS_SIZE) work_torque[ID] = limitedMaxTorque;
   st.EnableTorque(ID, 0);  // Disable torque
   st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, limitedMaxTorque);
   st.EnableTorque(ID, 1);  // Enable with limit
@@ -776,6 +782,7 @@ void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque
   // Convert to bytes
   for (int i = 0; i < IDN; i++) {
     auto maxTorque = respectTorqueLimits(IDs[i], MaxTorque[i]);
+    if (IDs[i] >= 1 && IDs[i] <= SERVOS_SIZE) work_torque[IDs[i]] = maxTorque;
     bytes[i * 2] = maxTorque & 0xFF;             // Low byte
     bytes[i * 2 + 1] = (maxTorque >> 8) & 0xFF;  // High byte
   }
@@ -844,4 +851,46 @@ void FingersController::safetyFeature() {
       }
     }
   }
+}
+
+// ---------- Holding phase ----------
+
+void FingersController::writeTorqueLimits(u8 IDN, u8 IDs[], const u16 torque[]) {
+  u8 bytes[2 * IDN];
+  for (int i = 0; i < IDN; i++) {
+    bytes[i * 2] = torque[i] & 0xFF;
+    bytes[i * 2 + 1] = (torque[i] >> 8) & 0xFF;
+  }
+  st.syncWrite(IDs, IDN, SMS_STS_TORQUE_LIMIT_L, bytes, 2);
+}
+
+// Back to the working torque before a movement (only if the hold torque was applied).
+void FingersController::restoreWorkTorque(u8 IDN, u8 IDs[]) {
+  if (!hold_active) return;
+  u8 allIDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  u16 torque[SERVOS_SIZE];
+  for (int i = 0; i < SERVOS_SIZE; i++) torque[i] = work_torque[allIDs[i]];
+  writeTorqueLimits(SERVOS_SIZE, allIDs, torque);
+  hold_active = false;
+}
+
+// Lower every servo to HOLD_LOAD (never above its working torque).
+void FingersController::applyHoldTorque() {
+  u8 allIDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  u16 torque[SERVOS_SIZE];
+  for (int i = 0; i < SERVOS_SIZE; i++) {
+    u16 w = work_torque[allIDs[i]];
+    torque[i] = (w > 0 && w < limits.HOLD_LOAD) ? w : (u16)limits.HOLD_LOAD;
+  }
+  writeTorqueLimits(SERVOS_SIZE, allIDs, torque);
+  hold_active = true;
+  hold_pending = false;
+}
+
+// Called from the main loop: after an asynchronous movement (grasp), hold when the fingers stop.
+void FingersController::holdUpdate() {
+  if (!hold_pending || (long)(millis() - hold_check_at) < 0) return;
+  hold_check_at = millis() + 50;  // check every 50 ms
+  u8 allIDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  if (stalled(SERVOS_SIZE, allIDs)) applyHoldTorque();
 }

@@ -207,8 +207,8 @@ void savePowerPreset(const String &name) {
 
 void printPowerPresets() {
   const SafetyLimits &l = fc.safetyLimits();
-  g_out->printf("SUPPLY %s: MAX_LOAD=%d TF_MAX_LOAD=%d OVER_CURRENT=%d OVER_LOAD=%d OVER_TEMP=%d\n", fc.powerPresetName(),
-                l.MAX_LOAD, l.TF_MAX_LOAD, l.OVER_CURRENT, l.OVER_LOAD, l.OVER_TEMP);
+  g_out->printf("SUPPLY %s: MAX_LOAD=%d TF_MAX_LOAD=%d OVER_CURRENT=%d OVER_LOAD=%d OVER_TEMP=%d HOLD_LOAD=%d\n", fc.powerPresetName(),
+                l.MAX_LOAD, l.TF_MAX_LOAD, l.OVER_CURRENT, l.OVER_LOAD, l.OVER_TEMP, l.HOLD_LOAD);
   g_out->print("Available presets:");
   for (int i = 0; i < FingersController::POWER_PRESETS_COUNT; i++) g_out->printf(" %s", FingersController::POWER_PRESETS[i].name);
   g_out->println();
@@ -526,6 +526,8 @@ void loop() {
     if (HandSecurity::usbSession().authenticated && g_telemetryUsb) sendRosFeedback(Serial);
     t_prev_ros_feedback = t_now_ros_feedback;
   }
+
+  fc.holdUpdate();  // holding phase: lower torque once the fingers have stopped
 
   static auto t_safety = millis();
   if (millis() - t_safety > 1000) {
