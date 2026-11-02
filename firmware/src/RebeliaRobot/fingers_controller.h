@@ -286,6 +286,8 @@ public:
   bool setPowerPreset(const String &name);
   const char *powerPresetName() const { return power_preset_name; }
   const SafetyLimits &safetyLimits() const { return limits; }
+  // Test only (service mode): change HOLD_LOAD until restart, not saved.
+  void setHoldLoad(int value) { limits.HOLD_LOAD = value; }
 
   // Set from the model stored at provisioning, before calibrateHand().
   void setHandSide(HandSide side) { hand_side = side; }

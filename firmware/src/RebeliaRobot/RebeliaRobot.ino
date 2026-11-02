@@ -26,7 +26,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
   Power presets (SUPPLY): torque limits that keep the supply current within a budget,
   stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
@@ -249,6 +249,13 @@ bool processServiceCommand(const String &cmd) {
   } else if (parseTwoArgs(cmd, "LIM ", 1, 5, 0, 1000, a, b)) {
     fc.setMaxTorque(a, b);
     reply("OK LIM");
+  } else if (parseOneArg(cmd, "HOLD ", 0, 1000, a)) {
+    // Test only: holding torque until restart (not saved). Never above the preset MAX_LOAD.
+    const SafetyLimits &l = fc.safetyLimits();
+    int maxHold = max(l.MAX_LOAD, l.TF_MAX_LOAD);
+    if (a > maxHold) a = maxHold;
+    fc.setHoldLoad(a);
+    g_out->printf("OK HOLD %d (until restart, not saved)\n", a);
   } else if (parseTwoArgs(cmd, "MOVE ", 1, 5, 0, 4095, a, b)) {
     fc.moveUntilLoadLimitHit(a, b, 2000, 200);
     reply("OK MOVE");
