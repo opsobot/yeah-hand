@@ -598,6 +598,12 @@ void FingersController::readFeedback(u8 IDN, u8 IDs[],
   st.syncReadPacketTx(IDs, IDN, startAddr, blockLen);
 
   for (int i = 0; i < IDN; i++) {
+    // Default when a servo does not answer the sync read: 0 everywhere (voltage 0 = no reply).
+    // Without this the caller's uninitialised arrays were printed (e.g. ROSAMPR -9368 5277).
+    load[i] = 0;
+    voltage[i] = 0;
+    temperature[i] = 0;
+    current[i] = 0;
     u8 data[blockLen];
     if (st.syncReadPacketRx(IDs[i], data) == blockLen) {
 
