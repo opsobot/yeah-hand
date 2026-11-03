@@ -775,6 +775,19 @@ void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
   st.EnableTorque(ID, 1);  // Enable with limit
 }
 
+// Test only: change one servo's torque limit while it is holding, WITHOUT switching the
+// torque off (the servo keeps pushing towards its goal, so the grip does not open).
+// Capped by the preset like every other torque write. Returns the value written.
+u16 FingersController::setTorqueLive(const u8 ID, const u16 torque) {
+  u16 t = respectTorqueLimits(ID, torque);
+  if (ID >= 1 && ID <= SERVOS_SIZE) work_torque[ID] = t;
+  u8 ids[1] = { ID };
+  u16 v[1] = { t };
+  writeTorqueLimits(1, ids, v);
+  hold_pending = false;  // the holding phase must not overwrite the value under test
+  return t;
+}
+
 void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]) {
   // Prepare 2-byte torque values
   u8 bytes[2 * IDN];  // 5 servos × 2 bytes each

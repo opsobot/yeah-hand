@@ -26,7 +26,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | TQ <1..5> <0..1000> (test, live torque while holding) | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
   Power presets (SUPPLY): torque limits that keep the supply current within a budget,
   stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
@@ -265,6 +265,10 @@ bool processServiceCommand(const String &cmd) {
   } else if (parseTwoArgs(cmd, "LIM ", 1, 5, 0, 1000, a, b)) {
     fc.setMaxTorque(a, b);
     reply("OK LIM");
+  } else if (parseTwoArgs(cmd, "TQ ", 1, 5, 0, 1000, a, b)) {
+    // Test only: torque limit of one servo changed live, while it holds (no torque off/on)
+    int t = fc.setTorqueLive(a, b);
+    g_out->printf("OK TQ %d %d (capped by preset)\n", a, t);
   } else if (parseOneArg(cmd, "HOLD ", 0, 1000, a)) {
     // Test only: holding torque until restart (not saved). Never above the preset MAX_LOAD.
     const SafetyLimits &l = fc.safetyLimits();
