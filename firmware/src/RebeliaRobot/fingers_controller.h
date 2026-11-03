@@ -259,7 +259,7 @@ public:
   // Early warning: WARN_TEMP_MARGIN degrees below OVER_TEMP the hand sends "WARN HOT"
   // (once, with 3 C hysteresis) and refuses new closing commands ("ERR HOT"), so the
   // robot can put the object down before the OVER_TEMP torque cut.
-  static const int WARN_TEMP_MARGIN = 10;
+  static const int WARN_TEMP_MARGIN = 5;  // 55 C with OVER_TEMP 60; restart at 52 C
   int warnTemp() const { return limits.OVER_TEMP - WARN_TEMP_MARGIN; }
   // Id of the hottest servo at or above warnTemp(), 0 if none; its temperature in *temp.
   int hotServo(int *temp) const;
