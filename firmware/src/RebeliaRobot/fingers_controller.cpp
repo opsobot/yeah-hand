@@ -598,12 +598,13 @@ void FingersController::readFeedback(u8 IDN, u8 IDs[],
   st.syncReadPacketTx(IDs, IDN, startAddr, blockLen);
 
   for (int i = 0; i < IDN; i++) {
-    // Default when a servo does not answer the sync read: 0 everywhere (voltage 0 = no reply).
-    // Without this the caller's uninitialised arrays were printed (e.g. ROSAMPR -9368 5277).
-    load[i] = 0;
-    voltage[i] = 0;
-    temperature[i] = 0;
-    current[i] = 0;
+    // When a servo misses the sync read, its last valid values are returned (never the
+    // caller's uninitialised arrays, which printed garbage such as ROSAMPR -9368 5277).
+    int c = (IDs[i] >= 1 && IDs[i] <= SERVOS_SIZE) ? IDs[i] - 1 : 0;
+    load[i] = fbLoad[c];
+    voltage[i] = fbVolt[c];
+    temperature[i] = fbTemp[c];
+    current[i] = fbCurrent[c];
     u8 data[blockLen];
     if (st.syncReadPacketRx(IDs[i], data) == blockLen) {
 
@@ -628,6 +629,10 @@ void FingersController::readFeedback(u8 IDN, u8 IDs[],
       u16 rawCurrent = (u16)(data[9] | (data[10] << 8));
       current[i] = (rawCurrent & 0x8000) ? -(s16)(rawCurrent & 0x7FFF)
                                          : (s16)(rawCurrent & 0x7FFF);
+      fbLoad[c] = load[i];
+      fbVolt[c] = voltage[i];
+      fbTemp[c] = temperature[i];
+      fbCurrent[c] = current[i];
     }
   }
 }

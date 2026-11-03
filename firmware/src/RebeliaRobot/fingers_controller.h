@@ -254,6 +254,11 @@ private:
   int lastValidTemp[SERVOS_SIZE] = { -1, -1, -1, -1, -1 };  // index = servo id - 1
   bool safetyTripped[SERVOS_SIZE] = { false, false, false, false, false };
   bool hotWarned[SERVOS_SIZE] = { false, false, false, false, false };
+  // Last valid telemetry per servo (index = id - 1), returned when a sync read is missed
+  s16 fbLoad[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
+  u8 fbVolt[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
+  u8 fbTemp[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
+  s16 fbCurrent[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
 
 public:
   // Early warning: WARN_TEMP_MARGIN degrees below OVER_TEMP the hand sends "WARN HOT"
