@@ -157,7 +157,6 @@ public:
   void moveAllFingersToMiddlePosition();
   void enableTorque(u8 ID, bool enable);
   void setMaxTorque(const u8 ID, const u16 maxTorque);
-  u16 setTorqueLive(const u8 ID, const u16 torque);  // test only, no torque off/on
   void setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]);
 
   // Load Limit Motion
