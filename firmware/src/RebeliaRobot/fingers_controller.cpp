@@ -770,9 +770,12 @@ void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
 
   auto limitedMaxTorque = respectTorqueLimits(ID, maxTorque);
   if (ID >= 1 && ID <= SERVOS_SIZE) work_torque[ID] = limitedMaxTorque;
-  st.EnableTorque(ID, 0);  // Disable torque
+  // Torque NOT switched off and on around the write: the torque limit (register 48) is in RAM
+  // and can be written with the torque on. If enabled, the servo moves its goal to the current
+  // position and does not push any more (the new limit would have no effect on a held object).
+  // st.EnableTorque(ID, 0);  // Disable torque
   st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, limitedMaxTorque);
-  st.EnableTorque(ID, 1);  // Enable with limit
+  // st.EnableTorque(ID, 1);  // Enable with limit
 }
 
 void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]) {
