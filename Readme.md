@@ -45,6 +45,19 @@ Features
 * Custom firmware for precise motor control.
 * Modularity for easy upgrades and customization.
 
+Specifications (robotic version)
+================================
+* Weight: 750 g with covers, 650 g without covers
+* Center of mass: at the wrist center
+* Degrees of freedom: 5 active, 15 total
+* Actuators: 5 x WaveShare ST3215 serial bus servos (20 kg·cm)
+* Payload: object lift 8 kg, object grasp 5 kg
+* Pinch force: 500 g
+* Grasp time: 1 s (high torque) / 2 s (low torque)
+* Power: 12 V DC @ 5 A (onboard 24 V to 12 V adapter); current limiter 0.8 A to 5 A
+* Robot flanges: ISO 9409-1-50-4-M6, ISO 9409-1-40-4-M6, PCD-40-4-M5, PCD-40-4-M6, Agilex Nero
+* Interface: Bluetooth serial; ROS 2 (ros2_control) driver and URDF in [opsobot/yeah_hand_ros](https://github.com/opsobot/yeah_hand_ros)
+
 Our Approach to Open-Source Release
 ===================================
 We use a copyleft open-source license to protect user freedoms and encourage meaningful collaboration, while maintaining a sustainable business model. Our strategy is as follows:
