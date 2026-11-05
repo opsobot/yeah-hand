@@ -44,10 +44,11 @@ static bool isClose(int value, int target, int tolerance) {
 
 struct SafetyLimits {
   int MAX_LOAD;
-  int TF_MAX_LOAD;
+  int TF_MAX_LOAD;  // thumb flexion
   int OVER_CURRENT;
   int OVER_LOAD;
   int OVER_TEMP;
+  int HOLD_LOAD;  // torque limit once a movement is finished (holding phase), limits heat
 };
 
 class FingersController {
@@ -85,7 +86,10 @@ public:
   static GraspType getGraspTypeByString(const String& cmd);
   static String getGraspStringByType(FingersController::GraspType type);
 
-  FingersController(BluetoothSerial* _serialBT);
+  FingersController(Stream* output);
+
+  // Stream that receives messages (the channel of the command being executed).
+  void setOutput(Stream* output) { SerialBT = output; }
   ~FingersController();
 
   // Setup
@@ -238,23 +242,80 @@ public:
   // Safety
 private:
   SafetyLimits limits{
-    .MAX_LOAD = 400,      // * 0.02 kg·cm * 400 = 8 kg·cm
-    .TF_MAX_LOAD = 600,      // * 0.02 kg·cm * 600 = 12 kg·cm
+    // Defaults = preset 5A (setPowerPreset() overwrites them at start-up)
+    .MAX_LOAD = 330,      // * 0.02 kg·cm * 330 = 6.6 kg·cm
+    .TF_MAX_LOAD = 300,   // * 0.02 kg·cm * 300 = 6 kg·cm (thumb flexion)
     .OVER_CURRENT = 150,  // * 6.5 mA * 150 = 975 mA
     .OVER_LOAD = 600,     // * 0.02 kg·cm * 600 = 12 kg·cm
-    .OVER_TEMP = 60       // * 1 °C * 60 = 60 °C
+    .OVER_TEMP = 60,      // * 1 °C * 60 = 60 °C
+    .HOLD_LOAD = 80       // * 0.02 kg·cm * 80 = 1.6 kg·cm (holding phase, Nov 2026 thermal tests)
   };
 
-  int lastValidTemp[SERVOS_SIZE];
+  int lastValidTemp[SERVOS_SIZE] = { -1, -1, -1, -1, -1 };  // index = servo id - 1
+  bool safetyTripped[SERVOS_SIZE] = { false, false, false, false, false };
+  bool hotWarned[SERVOS_SIZE] = { false, false, false, false, false };
+  // Last valid telemetry per servo (index = id - 1), returned when a sync read is missed
+  s16 fbLoad[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
+  u8 fbVolt[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
+  u8 fbTemp[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
+  s16 fbCurrent[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
 
 public:
+  // Early warning: WARN_TEMP_MARGIN degrees below OVER_TEMP the hand sends "WARN HOT"
+  // (once, with 3 C hysteresis) and refuses new closing commands ("ERR HOT"), so the
+  // robot can put the object down before the OVER_TEMP torque cut.
+  static const int WARN_TEMP_MARGIN = 5;  // 55 C with OVER_TEMP 60; restart at 52 C
+  int warnTemp() const { return limits.OVER_TEMP - WARN_TEMP_MARGIN; }
+  // Id of the hottest servo at or above warnTemp(), 0 if none; its temperature in *temp.
+  int hotServo(int *temp) const;
   void safetyFeature();
+
+  // Holding phase: when the fingers stop moving after a movement, the torque limit of
+  // every servo drops to HOLD_LOAD (if lower than its working torque); it is restored
+  // before the next movement. Call holdUpdate() from the main loop.
+  void holdUpdate();
+  bool holding() const { return hold_active; }
 
 private:
   SMS_STS st;
-  BluetoothSerial* SerialBT;
+  Stream* SerialBT;  // current output channel (Bluetooth or USB)
+
+public:
+  // Power presets: torque limits that keep the hand's supply current within a budget.
+  // Each preset is validated by measurement before it is added (see technical file).
+  struct PowerPreset {
+    const char *name;     // nominal max supply current at 12 V
+    SafetyLimits limits;  // every limit is set by the preset
+  };
+  // Fields: MAX_LOAD, TF_MAX_LOAD (thumb flexion), OVER_CURRENT, OVER_LOAD, OVER_TEMP, HOLD_LOAD
+  // Units: load 0.02 kg·cm, current 6.5 mA, temperature 1 °C
+  static constexpr PowerPreset POWER_PRESETS[] = {
+    { "5A", { 330, 300, 150, 600, 60, 80 } },   // standard, factory default; hold 80: test H 05/11/2026 (all covers, about 45 C)
+    { "1A", { 200, 200, 150, 250, 60, 80 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
+  };
+  static constexpr int POWER_PRESETS_COUNT = sizeof(POWER_PRESETS) / sizeof(POWER_PRESETS[0]);
+  static const PowerPreset *findPowerPreset(const String &name);
+  // Applies the limits of a preset (call before calibrateHand()). False if the name is unknown.
+  bool setPowerPreset(const String &name);
+  const char *powerPresetName() const { return power_preset_name; }
+  const SafetyLimits &safetyLimits() const { return limits; }
+  // Test only (service mode): change HOLD_LOAD until restart, not saved.
+  void setHoldLoad(int value) { limits.HOLD_LOAD = value; }
+
+  // Set from the model stored at provisioning, before calibrateHand().
+  void setHandSide(HandSide side) { hand_side = side; }
 
 private:
-  // ** !! SET THE HAND SIDE BEFORE PROGRAMMING !! **
-  const HandSide hand_side = HandSide::LeftSide;
+  HandSide hand_side = HandSide::LeftSide;
+  const char *power_preset_name = "5A";
+  u16 respectTorqueLimits(u8 ID, u16 torque) const;
+
+  // Holding phase state
+  u16 work_torque[SERVOS_SIZE + 1] = { 0, 0, 0, 0, 0, 0 };  // working torque per servo id (1..5)
+  bool hold_pending = false;    // a movement was started, hold when it stops
+  bool hold_active = false;     // hold torque applied
+  unsigned long hold_check_at = 0;
+  void writeTorqueLimits(u8 IDN, u8 IDs[], const u16 torque[]);  // no torque off/on
+  void restoreWorkTorque(u8 IDN, u8 IDs[]);
+  void applyHoldTorque();
 };
