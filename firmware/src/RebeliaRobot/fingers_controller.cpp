@@ -260,8 +260,9 @@ void FingersController::calibrateHand() {
     return (int)(((double)abs(max - min) / 4096.0) * 360.0);
   };
 
-  // Set final torque
-  setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 500, 200 });
+  // Set final torque: grip (attack) at the preset caps, MAX_LOAD for the fingers and
+  // TF_MAX_LOAD for the thumb flexion; the holding phase then drops every servo to HOLD_LOAD.
+  setMaxTorque(IDN, IDs, (u16[]){ (u16)limits.MAX_LOAD, (u16)limits.MAX_LOAD, (u16)limits.MAX_LOAD, (u16)limits.TF_MAX_LOAD, 200 });
 
   // Show information
   SerialBT->println("All servos calibrated!");

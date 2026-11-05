@@ -248,7 +248,7 @@ private:
     .OVER_CURRENT = 150,  // * 6.5 mA * 150 = 975 mA
     .OVER_LOAD = 600,     // * 0.02 kg·cm * 600 = 12 kg·cm
     .OVER_TEMP = 60,      // * 1 °C * 60 = 60 °C
-    .HOLD_LOAD = 200      // * 0.02 kg·cm * 200 = 4 kg·cm (holding phase)
+    .HOLD_LOAD = 80       // * 0.02 kg·cm * 80 = 1.6 kg·cm (holding phase, Nov 2026 thermal tests)
   };
 
   int lastValidTemp[SERVOS_SIZE] = { -1, -1, -1, -1, -1 };  // index = servo id - 1
@@ -290,8 +290,8 @@ public:
   // Fields: MAX_LOAD, TF_MAX_LOAD (thumb flexion), OVER_CURRENT, OVER_LOAD, OVER_TEMP, HOLD_LOAD
   // Units: load 0.02 kg·cm, current 6.5 mA, temperature 1 °C
   static constexpr PowerPreset POWER_PRESETS[] = {
-    { "5A", { 330, 300, 150, 600, 60, 200 } },  // standard, factory default (limits of the Oct 2025 endurance test)
-    { "1A", { 200, 200, 150, 250, 60, 200 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
+    { "5A", { 330, 300, 150, 600, 60, 80 } },   // standard, factory default; hold 80: test H 05/11/2026 (all covers, about 45 C)
+    { "1A", { 200, 200, 150, 250, 60, 80 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
   };
   static constexpr int POWER_PRESETS_COUNT = sizeof(POWER_PRESETS) / sizeof(POWER_PRESETS[0]);
   static const PowerPreset *findPowerPreset(const String &name);
