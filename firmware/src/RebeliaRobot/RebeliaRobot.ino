@@ -151,6 +151,8 @@ bool refuseIfHot(bool closing) {
 int g_lastRos[5] = { 0, 0, 0, 0, 0 };
 int g_lastFinger[5] = { 0, 0, 0, 0, 0 };
 
+Stream *g_out = &Serial;  // channel of the command being executed
+
 // ---------- Endurance cycling (service command CYCLE, manufacturer tests) ----------
 // The hand alternates closure 100 and 0 of the selected grasp every period. Every 50
 // cycles it stores the cycle number, the time since the start and the five servo
@@ -334,7 +336,6 @@ bool parseTwoArgs(const String &line, const char *prefix, int min1, int max1, in
   return parseIntStrict(args.substring(0, sep), min1, max1, a) && parseIntStrict(args.substring(sep + 1), min2, max2, b);
 }
 
-Stream *g_out = &Serial;  // channel of the command being executed
 
 void reply(const char *msg) {
   g_out->println(msg);
