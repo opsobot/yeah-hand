@@ -26,7 +26,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | CYCLE LOG | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | CYCLE LOG | TLOG <min> / TLOG SHOW / TLOG OFF | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
   Power presets (SUPPLY): torque limits that keep the supply current within a budget,
   stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
@@ -294,6 +294,80 @@ void cycleUpdate() {
   }
 }
 
+// ---------- Temperature/position recorder (service command TLOG, manufacturer tests) ----------
+// Every <minutes> stores the time since start, the five servo temperatures and positions
+// in flash (namespace "yhtlog", up to 60 records). It runs in the background, is not
+// stopped by other commands or by a link loss, stops when full, with TLOG OFF or at a
+// reset. TLOG SHOW prints the record (also after a reset or a power-off).
+const int TLOG_MAX = 60;
+struct TlogEntry {
+  uint32_t secs;
+  int16_t p[5];
+  int8_t t[5];
+};
+bool g_tlogActive = false;
+unsigned long g_tlogPeriodMs = 300000UL;
+unsigned long g_tlogNext = 0;
+unsigned long g_tlogStartMs = 0;
+
+void tlogRecord() {
+  Preferences p;
+  p.begin("yhtlog", false);
+  uint8_t cnt = p.getUChar("cnt", 0);
+  if (cnt >= TLOG_MAX) {
+    g_tlogActive = false;
+    p.putString("end", "full");
+    p.end();
+    return;
+  }
+  TlogEntry e[TLOG_MAX];
+  if (cnt > 0) p.getBytes("e", e, sizeof(e));
+  e[cnt].secs = (millis() - g_tlogStartMs) / 1000UL;
+  for (int i = 0; i < 5; ++i) {
+    e[cnt].t[i] = (int8_t)fc.lastTemp(i + 1);
+    e[cnt].p[i] = (int16_t)fc.readPos(i + 1);
+  }
+  p.putBytes("e", e, sizeof(e));
+  p.putUChar("cnt", cnt + 1);
+  p.end();
+}
+
+void tlogUpdate() {
+  if (!g_tlogActive || (long)(millis() - g_tlogNext) < 0) return;
+  g_tlogNext += g_tlogPeriodMs;
+  tlogRecord();
+}
+
+void tlogStart(int minutes) {
+  Preferences p;
+  p.begin("yhtlog", false);
+  p.clear();
+  p.putUShort("min", (uint16_t)minutes);
+  p.putString("pre", fc.powerPresetName());
+  p.putString("end", "running");
+  p.end();
+  g_tlogPeriodMs = (unsigned long)minutes * 60000UL;
+  g_tlogStartMs = millis();
+  g_tlogNext = millis();
+  g_tlogActive = true;
+  tlogUpdate();  // first record now
+}
+
+void tlogShow() {
+  Preferences p;
+  p.begin("yhtlog", true);
+  uint8_t cnt = p.getUChar("cnt", 0);
+  g_out->printf("TLOG every %u min, preset=%s, %s%s\n", p.getUShort("min", 0), p.getString("pre", "-").c_str(),
+                p.getString("end", "-").c_str(), g_tlogActive ? " (recording)" : "");
+  TlogEntry e[TLOG_MAX];
+  if (cnt > 0) p.getBytes("e", e, sizeof(e));
+  for (int i = 0; i < cnt; ++i) {
+    g_out->printf("TLOG t=%lum T: %d %d %d %d %d P: %d %d %d %d %d\n", (unsigned long)(e[i].secs / 60), e[i].t[0],
+                  e[i].t[1], e[i].t[2], e[i].t[3], e[i].t[4], e[i].p[0], e[i].p[1], e[i].p[2], e[i].p[3], e[i].p[4]);
+  }
+  p.end();
+}
+
 enum class FSM {
   Control,
   TendonInstall,
@@ -407,6 +481,20 @@ bool processServiceCommand(const String &cmd) {
   } else if (parseTwoArgs(cmd, "LIM ", 1, 5, 0, 1000, a, b)) {
     fc.setMaxTorque(a, b);
     reply("OK LIM");
+  } else if (cmd == "TLOG SHOW") {
+    tlogShow();
+  } else if (cmd == "TLOG OFF") {
+    if (g_tlogActive) {
+      g_tlogActive = false;
+      Preferences p;
+      p.begin("yhtlog", false);
+      p.putString("end", "stopped");
+      p.end();
+    }
+    reply("OK TLOG OFF");
+  } else if (parseOneArg(cmd, "TLOG ", 1, 60, a)) {
+    tlogStart(a);
+    g_out->printf("OK TLOG every %d min (max %d records), read with TLOG SHOW\n", a, TLOG_MAX);
   } else if (cmd == "CYCLE LOG") {
     printCycleLog();
   } else if (parseTwoArgs(cmd, "CYCLE ", 1, 60, 1, 2000, a, b)) {
@@ -460,7 +548,7 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
 
   // Any command stops an endurance cycle, except reading INFO and switching telemetry
   if (g_cycleActive && !cmd.startsWith("CYCLE ") && !cmd.startsWith("INFO ") && !cmd.startsWith("TELEMETRY") &&
-      cmd != "SERVICE ON")
+      !cmd.startsWith("TLOG") && cmd != "SERVICE ON")
     stopCycle("command received");
 
   int a;
@@ -684,6 +772,7 @@ void loop() {
   readChannel(SerialBT, HandSecurity::bluetoothSession(), false);
 
   cycleUpdate();
+  tlogUpdate();
 
   if (gFsmState == FSM::Control && g_calibrated) {  // no motion before CALIBRATE
     if (g_new_grasp_type != g_grasp_type) {
