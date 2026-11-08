@@ -26,7 +26,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | CYCLE LOG | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
   Power presets (SUPPLY): torque limits that keep the supply current within a budget,
   stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
@@ -152,38 +152,127 @@ int g_lastRos[5] = { 0, 0, 0, 0, 0 };
 int g_lastFinger[5] = { 0, 0, 0, 0, 0 };
 
 // ---------- Endurance cycling (service command CYCLE, manufacturer tests) ----------
-// The hand alternates closure 100 and 0 of the selected grasp every period, prints the
-// servo temperatures every 50 cycles and stops by itself at the end, on WARN HOT, on a
-// link loss or when any other command arrives. Opening is always the last movement.
+// The hand alternates closure 100 and 0 of the selected grasp every period. Every 50
+// cycles it stores the cycle number, the time since the start and the five servo
+// temperatures in flash (namespace "yhcycle"), together with the maximum temperature of
+// each servo and the reason it stopped, so the record survives an app crash, a reset or
+// a power-off. CYCLE LOG prints it; the next CYCLE erases it. The cycle stops at the
+// end, on WARN HOT, or when a command other than INFO / TELEMETRY / AUTH / SERVICE ON /
+// CYCLE LOG arrives. It does NOT stop on a Bluetooth link loss (manufacturer test under
+// supervision), so a crash of the logging phone does not end the test.
+const int CYCLE_LOG_MAX = 40;  // 40 entries x 50 cycles = 2000 cycles
+struct CycleEntry {
+  uint16_t cycle;
+  uint32_t secs;
+  int8_t t[5];
+};
 bool g_cycleActive = false;
 bool g_cycleClosed = false;
 unsigned long g_cyclePeriodMs = 5000;
 unsigned long g_cycleNext = 0;
+unsigned long g_cycleStartMs = 0;
 long g_cycleCount = 0;
 long g_cycleTotal = 0;
+int8_t g_cycleMax[5] = { -1, -1, -1, -1, -1 };
 Stream *g_cycleOut = nullptr;
 
-void printCycleTemps(Stream *out, const char *tag) {
-  if (!out) return;
-  out->printf("%s %ld T: %d %d %d %d %d\n", tag, g_cycleCount, fc.lastTemp(1), fc.lastTemp(2), fc.lastTemp(3),
-              fc.lastTemp(4), fc.lastTemp(5));
+bool cycleOutReady() {
+  if (!g_cycleOut) return false;
+  if (g_cycleOut == &SerialBT && !SerialBT.hasClient()) return false;  // never block on a lost link
+  return true;
+}
+
+void printCycleTemps(const char *tag) {
+  if (!cycleOutReady()) return;
+  g_cycleOut->printf("%s %ld T: %d %d %d %d %d\n", tag, g_cycleCount, fc.lastTemp(1), fc.lastTemp(2), fc.lastTemp(3),
+                     fc.lastTemp(4), fc.lastTemp(5));
+}
+
+void cycleUpdateMax() {
+  for (int i = 0; i < 5; ++i) {
+    int t = fc.lastTemp(i + 1);
+    if (t > g_cycleMax[i]) g_cycleMax[i] = (int8_t)t;
+  }
+}
+
+void cycleLogStart(int seconds, long total) {
+  Preferences p;
+  p.begin("yhcycle", false);
+  p.clear();
+  p.putUShort("s", (uint16_t)seconds);
+  p.putUInt("n", (uint32_t)total);
+  p.putString("pre", fc.powerPresetName());
+  p.putUChar("cnt", 0);
+  p.putString("end", "running");
+  p.end();
+}
+
+void cycleLogAppend() {
+  Preferences p;
+  p.begin("yhcycle", false);
+  uint8_t cnt = p.getUChar("cnt", 0);
+  if (cnt < CYCLE_LOG_MAX) {
+    CycleEntry e[CYCLE_LOG_MAX];
+    p.getBytes("e", e, sizeof(e));
+    e[cnt].cycle = (uint16_t)g_cycleCount;
+    e[cnt].secs = (millis() - g_cycleStartMs) / 1000UL;
+    for (int i = 0; i < 5; ++i) e[cnt].t[i] = (int8_t)fc.lastTemp(i + 1);
+    p.putBytes("e", e, sizeof(e));
+    p.putUChar("cnt", cnt + 1);
+  }
+  p.putBytes("max", g_cycleMax, sizeof(g_cycleMax));
+  p.end();
+}
+
+void cycleLogEnd(const char *why) {
+  Preferences p;
+  p.begin("yhcycle", false);
+  p.putBytes("max", g_cycleMax, sizeof(g_cycleMax));
+  p.putUInt("k", (uint32_t)g_cycleCount);
+  p.putUInt("dur", (millis() - g_cycleStartMs) / 1000UL);
+  p.putString("end", why);
+  p.end();
+}
+
+void printCycleLog() {
+  Preferences p;
+  p.begin("yhcycle", true);
+  uint8_t cnt = p.getUChar("cnt", 0);
+  g_out->printf("CYCLE LOG s=%u n=%u preset=%s%s\n", p.getUShort("s", 0), p.getUInt("n", 0),
+                p.getString("pre", "-").c_str(), g_cycleActive ? " (still running)" : "");
+  CycleEntry e[CYCLE_LOG_MAX];
+  if (cnt > 0) p.getBytes("e", e, sizeof(e));
+  for (int i = 0; i < cnt; ++i) {
+    g_out->printf("CYCLE %u t=%lum%02lus T: %d %d %d %d %d\n", e[i].cycle, (unsigned long)(e[i].secs / 60),
+                  (unsigned long)(e[i].secs % 60), e[i].t[0], e[i].t[1], e[i].t[2], e[i].t[3], e[i].t[4]);
+  }
+  int8_t mx[5] = { -1, -1, -1, -1, -1 };
+  p.getBytes("max", mx, sizeof(mx));
+  g_out->printf("CYCLE MAX T: %d %d %d %d %d\n", mx[0], mx[1], mx[2], mx[3], mx[4]);
+  uint32_t dur = p.getUInt("dur", 0);
+  g_out->printf("CYCLE END %s after %u cycles, %lum%02lus\n", p.getString("end", "-").c_str(), p.getUInt("k", 0),
+                (unsigned long)(dur / 60), (unsigned long)(dur % 60));
+  p.end();
 }
 
 void stopCycle(const char *why) {
   if (!g_cycleActive) return;
   g_cycleActive = false;
   g_newClosurePercent = 0;  // finish open
-  if (g_cycleOut) g_cycleOut->printf("CYCLE STOPPED (%s) after %ld cycles\n", why, g_cycleCount);
-  printCycleTemps(g_cycleOut, "CYCLE END");
+  cycleUpdateMax();
+  cycleLogEnd(why);
+  if (cycleOutReady()) g_cycleOut->printf("CYCLE STOPPED (%s) after %ld cycles\n", why, g_cycleCount);
+  printCycleTemps("CYCLE END");
 }
 
 void cycleUpdate() {
   if (!g_cycleActive || (long)(millis() - g_cycleNext) < 0) return;
   g_cycleNext += g_cyclePeriodMs;
   int t;
-  if (!g_cycleClosed && fc.hotServo(&t) != 0) {
+  int hot = fc.hotServo(&t);
+  if (!g_cycleClosed && hot != 0) {
     char why[48];
-    snprintf(why, sizeof(why), "WARN HOT servo %d %d C", fc.hotServo(&t), t);
+    snprintf(why, sizeof(why), "WARN HOT servo %d %d C", hot, t);
     stopCycle(why);
     return;
   }
@@ -194,7 +283,11 @@ void cycleUpdate() {
     g_newClosurePercent = 0;
     g_cycleClosed = false;
     g_cycleCount++;
-    if (g_cycleCount % 50 == 0) printCycleTemps(g_cycleOut, "CYCLE");
+    cycleUpdateMax();
+    if (g_cycleCount % 50 == 0) {
+      cycleLogAppend();
+      printCycleTemps("CYCLE");
+    }
     if (g_cycleCount >= g_cycleTotal) stopCycle("done");
   }
 }
@@ -313,7 +406,9 @@ bool processServiceCommand(const String &cmd) {
   } else if (parseTwoArgs(cmd, "LIM ", 1, 5, 0, 1000, a, b)) {
     fc.setMaxTorque(a, b);
     reply("OK LIM");
-  } else if (parseTwoArgs(cmd, "CYCLE ", 1, 60, 1, 100000, a, b)) {
+  } else if (cmd == "CYCLE LOG") {
+    printCycleLog();
+  } else if (parseTwoArgs(cmd, "CYCLE ", 1, 60, 1, 2000, a, b)) {
     // Test only: endurance cycling of the selected grasp, a seconds closed + a seconds open, b cycles
     if (refuseIfNotCalibrated()) return true;
     g_cyclePeriodMs = (unsigned long)a * 1000UL;
@@ -322,9 +417,13 @@ bool processServiceCommand(const String &cmd) {
     g_cycleClosed = false;
     g_cycleOut = g_out;
     g_cycleNext = millis();
+    g_cycleStartMs = millis();
+    for (int i = 0; i < 5; ++i) g_cycleMax[i] = -1;
+    cycleUpdateMax();
+    cycleLogStart(a, b);
     g_cycleActive = true;
-    g_out->printf("OK CYCLE %d s closed + %d s open, %d cycles; any command except INFO/TELEMETRY stops it\n", a, a, b);
-    printCycleTemps(g_out, "CYCLE");
+    g_out->printf("OK CYCLE %d s closed + %d s open, %d cycles; any command except INFO/TELEMETRY/SERVICE ON/CYCLE LOG stops it; record kept in flash, read it with CYCLE LOG\n", a, a, b);
+    printCycleTemps("CYCLE");
   } else if (parseOneArg(cmd, "HOLD ", 0, 1000, a)) {
     // Test only: holding torque until restart (not saved). Never above the preset MAX_LOAD.
     const SafetyLimits &l = fc.safetyLimits();
@@ -359,7 +458,8 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
   }
 
   // Any command stops an endurance cycle, except reading INFO and switching telemetry
-  if (g_cycleActive && !cmd.startsWith("CYCLE ") && !cmd.startsWith("INFO ") && !cmd.startsWith("TELEMETRY"))
+  if (g_cycleActive && !cmd.startsWith("CYCLE ") && !cmd.startsWith("INFO ") && !cmd.startsWith("TELEMETRY") &&
+      cmd != "SERVICE ON")
     stopCycle("command received");
 
   int a;
@@ -562,7 +662,6 @@ void readChannel(Stream &in, HandSecurity::Session &session, bool isUsb) {
 // The hand holds its current position (an object being grasped is not released).
 void enterSafeStateAfterLinkLoss() {
   g_telemetryBt = true;  // default for the next connection
-  stopCycle("Bluetooth link lost");
   g_serviceMode = false;
   gFsmState = FSM::Control;
   g_closure = false;
