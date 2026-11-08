@@ -268,6 +268,8 @@ public:
   int warnTemp() const { return limits.OVER_TEMP - WARN_TEMP_MARGIN; }
   // Id of the hottest servo at or above warnTemp(), 0 if none; its temperature in *temp.
   int hotServo(int *temp) const;
+  // Last valid temperature of a servo (id 1..5) read by safetyFeature(), -1 if none yet.
+  int lastTemp(int id) const { return (id >= 1 && id <= SERVOS_SIZE) ? lastValidTemp[id - 1] : -1; }
   void safetyFeature();
 
   // Holding phase: when the fingers stop moving after a movement, the torque limit of

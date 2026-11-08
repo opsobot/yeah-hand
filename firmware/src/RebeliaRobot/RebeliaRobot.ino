@@ -26,7 +26,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
   Power presets (SUPPLY): torque limits that keep the supply current within a budget,
   stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
@@ -151,6 +151,54 @@ bool refuseIfHot(bool closing) {
 int g_lastRos[5] = { 0, 0, 0, 0, 0 };
 int g_lastFinger[5] = { 0, 0, 0, 0, 0 };
 
+// ---------- Endurance cycling (service command CYCLE, manufacturer tests) ----------
+// The hand alternates closure 100 and 0 of the selected grasp every period, prints the
+// servo temperatures every 50 cycles and stops by itself at the end, on WARN HOT, on a
+// link loss or when any other command arrives. Opening is always the last movement.
+bool g_cycleActive = false;
+bool g_cycleClosed = false;
+unsigned long g_cyclePeriodMs = 5000;
+unsigned long g_cycleNext = 0;
+long g_cycleCount = 0;
+long g_cycleTotal = 0;
+Stream *g_cycleOut = nullptr;
+
+void printCycleTemps(Stream *out, const char *tag) {
+  if (!out) return;
+  out->printf("%s %ld T: %d %d %d %d %d\n", tag, g_cycleCount, fc.lastTemp(1), fc.lastTemp(2), fc.lastTemp(3),
+              fc.lastTemp(4), fc.lastTemp(5));
+}
+
+void stopCycle(const char *why) {
+  if (!g_cycleActive) return;
+  g_cycleActive = false;
+  g_newClosurePercent = 0;  // finish open
+  if (g_cycleOut) g_cycleOut->printf("CYCLE STOPPED (%s) after %ld cycles\n", why, g_cycleCount);
+  printCycleTemps(g_cycleOut, "CYCLE END");
+}
+
+void cycleUpdate() {
+  if (!g_cycleActive || (long)(millis() - g_cycleNext) < 0) return;
+  g_cycleNext += g_cyclePeriodMs;
+  int t;
+  if (!g_cycleClosed && fc.hotServo(&t) != 0) {
+    char why[48];
+    snprintf(why, sizeof(why), "WARN HOT servo %d %d C", fc.hotServo(&t), t);
+    stopCycle(why);
+    return;
+  }
+  if (!g_cycleClosed) {
+    g_newClosurePercent = 100;
+    g_cycleClosed = true;
+  } else {
+    g_newClosurePercent = 0;
+    g_cycleClosed = false;
+    g_cycleCount++;
+    if (g_cycleCount % 50 == 0) printCycleTemps(g_cycleOut, "CYCLE");
+    if (g_cycleCount >= g_cycleTotal) stopCycle("done");
+  }
+}
+
 enum class FSM {
   Control,
   TendonInstall,
@@ -265,6 +313,18 @@ bool processServiceCommand(const String &cmd) {
   } else if (parseTwoArgs(cmd, "LIM ", 1, 5, 0, 1000, a, b)) {
     fc.setMaxTorque(a, b);
     reply("OK LIM");
+  } else if (parseTwoArgs(cmd, "CYCLE ", 1, 60, 1, 100000, a, b)) {
+    // Test only: endurance cycling of the selected grasp, a seconds closed + a seconds open, b cycles
+    if (refuseIfNotCalibrated()) return true;
+    g_cyclePeriodMs = (unsigned long)a * 1000UL;
+    g_cycleTotal = b;
+    g_cycleCount = 0;
+    g_cycleClosed = false;
+    g_cycleOut = g_out;
+    g_cycleNext = millis();
+    g_cycleActive = true;
+    g_out->printf("OK CYCLE %d s closed + %d s open, %d cycles; any command except INFO/TELEMETRY stops it\n", a, a, b);
+    printCycleTemps(g_out, "CYCLE");
   } else if (parseOneArg(cmd, "HOLD ", 0, 1000, a)) {
     // Test only: holding torque until restart (not saved). Never above the preset MAX_LOAD.
     const SafetyLimits &l = fc.safetyLimits();
@@ -297,6 +357,10 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
     reply("ERR AUTH REQUIRED");
     return;
   }
+
+  // Any command stops an endurance cycle, except reading INFO and switching telemetry
+  if (g_cycleActive && !cmd.startsWith("CYCLE ") && !cmd.startsWith("INFO ") && !cmd.startsWith("TELEMETRY"))
+    stopCycle("command received");
 
   int a;
 
@@ -498,6 +562,7 @@ void readChannel(Stream &in, HandSecurity::Session &session, bool isUsb) {
 // The hand holds its current position (an object being grasped is not released).
 void enterSafeStateAfterLinkLoss() {
   g_telemetryBt = true;  // default for the next connection
+  stopCycle("Bluetooth link lost");
   g_serviceMode = false;
   gFsmState = FSM::Control;
   g_closure = false;
@@ -517,6 +582,8 @@ void loop() {
 
   readChannel(Serial, HandSecurity::usbSession(), true);
   readChannel(SerialBT, HandSecurity::bluetoothSession(), false);
+
+  cycleUpdate();
 
   if (gFsmState == FSM::Control && g_calibrated) {  // no motion before CALIBRATE
     if (g_new_grasp_type != g_grasp_type) {
