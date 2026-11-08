@@ -321,8 +321,13 @@ bool handleFactoryCommand(const String &line, Stream &out) {
   if (!line.startsWith("FACTORY")) return false;
 
   if (line == "FACTORY STATUS") {
-    out.printf("FACTORY STATUS provisioned=%s serial=%s model=%s name=%s\n", isProvisioned() ? "yes" : "no",
-               s_serial.length() ? s_serial.c_str() : "-", s_model.length() ? s_model.c_str() : "-", deviceName().c_str());
+    // Factory MAC burned in eFuse by Espressif: identifies the board (cannot be changed by firmware).
+    uint8_t mac[6] = { 0 };
+    esp_efuse_mac_get_default(mac);
+    out.printf("FACTORY STATUS provisioned=%s serial=%s model=%s name=%s mac=%02X:%02X:%02X:%02X:%02X:%02X\n",
+               isProvisioned() ? "yes" : "no", s_serial.length() ? s_serial.c_str() : "-",
+               s_model.length() ? s_model.c_str() : "-", deviceName().c_str(), mac[0], mac[1], mac[2], mac[3], mac[4],
+               mac[5]);
     return true;
   }
 
