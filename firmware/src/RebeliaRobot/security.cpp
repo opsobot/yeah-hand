@@ -10,6 +10,8 @@ License: GNU GPL v3 or later (see COPYING.txt).
 #include <esp_gap_bt_api.h>
 #include <esp_spp_api.h>
 #include <esp_mac.h>
+#include <esp_app_desc.h>
+#include "version.h"
 
 namespace HandSecurity {
 
@@ -324,10 +326,17 @@ bool handleFactoryCommand(const String &line, Stream &out) {
     // Factory MAC burned in eFuse by Espressif: identifies the board (cannot be changed by firmware).
     uint8_t mac[6] = { 0 };
     esp_efuse_mac_get_default(mac);
-    out.printf("FACTORY STATUS provisioned=%s serial=%s model=%s name=%s mac=%02X:%02X:%02X:%02X:%02X:%02X\n",
+    char build[24];
+    snprintf(build, sizeof(build), "%s_%s", __DATE__, __TIME__);  // e.g. "Nov  8 2026_19:05:00"
+    for (char *c = build; *c; ++c)
+      if (*c == ' ') *c = '-';  // no spaces, so every field stays key=value
+    char elf[17] = { 0 };
+    esp_app_get_elf_sha256(elf, sizeof(elf));  // first 16 hex digits of the build's ELF SHA-256
+    out.printf("FACTORY STATUS provisioned=%s serial=%s model=%s name=%s mac=%02X:%02X:%02X:%02X:%02X:%02X "
+               "fw=%s build=%s elf=%s\n",
                isProvisioned() ? "yes" : "no", s_serial.length() ? s_serial.c_str() : "-",
                s_model.length() ? s_model.c_str() : "-", deviceName().c_str(), mac[0], mac[1], mac[2], mac[3], mac[4],
-               mac[5]);
+               mac[5], FW_VERSION, build, elf);
     return true;
   }
 
