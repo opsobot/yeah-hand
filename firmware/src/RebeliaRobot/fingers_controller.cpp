@@ -842,17 +842,28 @@ void FingersController::safetyFeature() {
     auto l = readLoad(id);
     auto t = readTemper(id);
 
-    // filter corrupted temperature values
+    // Filter corrupted temperature values: out-of-range readings are dropped, the others go
+    // into a 5-sample window (one per second) and every decision uses the MEDIAN of the
+    // window, so one or two wrong readings in a row cannot trigger WARN HOT or OVER_TEMP
+    // (observed 08/11/2026: a single 58 C reading between 50-51 C stopped an endurance test).
+    // A real rise is followed with about 2-3 s of delay.
     bool tempValueInsideRange = (t >= 0 && t <= 120);
     bool tempValueIsValid = false;
     if (tempValueInsideRange) {
-      int tPrev = lastValidTemp[i];
-      if (tPrev >= 0 && abs(t - tPrev) > 5) {
-        tempValueIsValid = false;
-      } else {
-        tempValueIsValid = true;
-        lastValidTemp[i] = t;
+      tempWin[i][tempWinPos[i]] = t;
+      tempWinPos[i] = (tempWinPos[i] + 1) % TEMP_WIN;
+      if (tempWinCount[i] < TEMP_WIN) tempWinCount[i]++;
+      int n = tempWinCount[i];
+      int sorted[TEMP_WIN];
+      for (int k = 0; k < n; k++) sorted[k] = tempWin[i][k];
+      for (int a = 1; a < n; a++) {  // insertion sort, n <= 5
+        int v = sorted[a], b = a - 1;
+        while (b >= 0 && sorted[b] > v) { sorted[b + 1] = sorted[b]; b--; }
+        sorted[b + 1] = v;
       }
+      t = sorted[n / 2];  // median
+      tempValueIsValid = true;
+      lastValidTemp[i] = t;
     }
 
     // Early temperature warning (before the OVER_TEMP torque cut)

@@ -252,6 +252,11 @@ private:
   };
 
   int lastValidTemp[SERVOS_SIZE] = { -1, -1, -1, -1, -1 };  // index = servo id - 1
+  // Median filter of the temperature readings (5 s window, one reading per second per servo)
+  static const int TEMP_WIN = 5;
+  int tempWin[SERVOS_SIZE][TEMP_WIN] = {};
+  int tempWinPos[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
+  int tempWinCount[SERVOS_SIZE] = { 0, 0, 0, 0, 0 };
   bool safetyTripped[SERVOS_SIZE] = { false, false, false, false, false };
   bool hotWarned[SERVOS_SIZE] = { false, false, false, false, false };
   // Last valid telemetry per servo (index = id - 1), returned when a sync read is missed
