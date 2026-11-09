@@ -282,6 +282,16 @@ public:
   // before the next movement. Call holdUpdate() from the main loop.
   void holdUpdate();
   bool holding() const { return hold_active; }
+  // Start the holding check now (the hold is applied when all fingers are still).
+  void requestHold() {
+    hold_pending = true;
+    hold_check_at = millis();
+  }
+  bool anySafetyTripped() const {
+    for (int i = 0; i < SERVOS_SIZE; i++)
+      if (safetyTripped[i]) return true;
+    return false;
+  }
 
 private:
   SMS_STS st;

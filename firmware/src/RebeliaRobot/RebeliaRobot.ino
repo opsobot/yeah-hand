@@ -26,7 +26,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | CYCLE LOG | TLOG <min> / TLOG SHOW / TLOG OFF | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | CYCLE LOG | TLOG <min> / TLOG SHOW / TLOG OFF | KTEST <1..5|A> <start> <step> <steps> | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
   Power presets (SUPPLY): torque limits that keep the supply current within a budget,
   stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
@@ -368,6 +368,116 @@ void tlogShow() {
   p.end();
 }
 
+// ---------- Stiffness test (service command KTEST, research measurements) ----------
+// KTEST <servo> <start> <step> <steps>   servo: 1..5, or A = fingers 1..4
+// Closes the selected grasp on the object held in the hand with the torque limit of the
+// selected servo(s) at <start>, then raises it by <step> for <steps> times. At every step
+// it waits until the servo is still and records the limit and the position. For every
+// step K = |delta position| / delta limit (position steps per limit unit, 1 step = 0.088 deg);
+// the result is the mean K. Limits are capped by the power preset (MAX_LOAD, TF_MAX_LOAD
+// for the thumb): use SUPPLY TEST for a wider range. Blocking test (a few seconds per
+// step); the safety check runs between steps and stops the test on a fault.
+static const char *KSERVO_NAME[6] = { "", "index", "middle", "ring+little", "thumb flexion", "thumb rotation" };
+
+bool kWaitStill(u8 ids[], int n) {
+  unsigned long t0 = millis(), lastSafety = millis();
+  while (millis() - t0 < 4000) {
+    delay(50);
+    if (fc.stalled(n, ids)) break;
+    if (millis() - lastSafety >= 1000) {
+      fc.safetyFeature();
+      lastSafety = millis();
+      if (fc.anySafetyTripped()) return false;
+    }
+  }
+  delay(300);  // settle
+  fc.safetyFeature();
+  return !fc.anySafetyTripped();
+}
+
+void runKTest(int sel, int start, int step, int steps) {
+  if (!g_calibrated) {
+    reply("ERR NOT CALIBRATED: send CALIBRATE first");
+    return;
+  }
+  u8 ids[4];
+  int n = 0;
+  if (sel == 0) {
+    for (u8 id = 1; id <= 4; id++) ids[n++] = id;
+  } else {
+    ids[n++] = (u8)sel;
+  }
+  const SafetyLimits &lim = fc.safetyLimits();
+  const int MAXSTEPS = 20;
+  if (steps > MAXSTEPS) steps = MAXSTEPS;
+  int limits[MAXSTEPS + 1][4];
+  int pos[MAXSTEPS + 1][4];
+  int savedHold = lim.HOLD_LOAD;
+  fc.setHoldLoad(1000);  // no holding phase during the test
+
+  g_out->printf("KTEST grasp %s, servo %s, start %d, step %d, %d steps, preset %s\n",
+                FingersController::getGraspStringByType(g_grasp_type).c_str(), sel == 0 ? "A (1-4)" : KSERVO_NAME[sel], start, step, steps,
+                fc.powerPresetName());
+  // Step 0: open, then close on the object with the start limit
+  for (int k = 0; k < n; k++) fc.setMaxTorque(ids[k], start);
+  fc.action(g_grasp_type, 0);
+  delay(1500);
+  fc.action(g_grasp_type, 100);
+  g_closurePercent = g_newClosurePercent = 100;
+  bool ok = kWaitStill(ids, n);
+  int done = 0;
+  for (int s = 0; ok && s <= steps; s++) {
+    if (s > 0) {
+      for (int k = 0; k < n; k++) fc.setMaxTorque(ids[k], start + s * step);
+      ok = kWaitStill(ids, n);
+      if (!ok) break;
+    }
+    for (int k = 0; k < n; k++) {
+      int cap = (ids[k] == FingersController::THUMB_ID) ? lim.TF_MAX_LOAD : lim.MAX_LOAD;
+      int l = start + s * step;
+      limits[s][k] = l > cap ? cap : l;
+      pos[s][k] = fc.readPos(ids[k]);
+    }
+    done = s;
+  }
+  if (!ok) g_out->println("KTEST STOPPED: safety fault (see SAFETY message), results up to the last step");
+
+  for (int k = 0; k < n; k++) {
+    u8 id = ids[k];
+    g_out->printf("KTEST servo %d (%s)\n", id, KSERVO_NAME[id]);
+    g_out->printf("KTEST step 0 LIM %d P %d\n", limits[0][k], pos[0][k]);
+    float sumK = 0;
+    int nK = 0;
+    for (int s = 1; s <= done; s++) {
+      int dL = limits[s][k] - limits[s - 1][k];
+      int dP = abs(pos[s][k] - pos[s - 1][k]);
+      if (dL <= 0) {
+        g_out->printf("KTEST step %d LIM %d P %d (limit capped by preset, not used)\n", s, limits[s][k], pos[s][k]);
+        continue;
+      }
+      float K = (float)dP / (float)dL;
+      sumK += K;
+      nK++;
+      g_out->printf("KTEST step %d LIM %d P %d dLIM %d dP %d K %.4f\n", s, limits[s][k], pos[s][k], dL, dP, K);
+    }
+    if (nK > 0) {
+      float Km = sumK / nK;
+      g_out->printf("KTEST RESULT servo %d (%s): K mean %.4f steps/LIM unit = %.4f deg/LIM unit (%d steps)\n", id,
+                    KSERVO_NAME[id], Km, Km * 360.0f / 4096.0f, nK);
+    } else {
+      g_out->printf("KTEST RESULT servo %d (%s): no valid step\n", id, KSERVO_NAME[id]);
+    }
+  }
+  // Back to normal: preset working torque, then the holding phase
+  fc.setHoldLoad(savedHold);
+  for (int k = 0; k < n; k++) {
+    u8 id = ids[k];
+    fc.setMaxTorque(id, id == FingersController::THUMB_ID ? lim.TF_MAX_LOAD : lim.MAX_LOAD);
+  }
+  fc.requestHold();
+  g_out->println("KTEST END (hand still closed; send 0 to open)");
+}
+
 enum class FSM {
   Control,
   TendonInstall,
@@ -481,6 +591,23 @@ bool processServiceCommand(const String &cmd) {
   } else if (parseTwoArgs(cmd, "LIM ", 1, 5, 0, 1000, a, b)) {
     fc.setMaxTorque(a, b);
     reply("OK LIM");
+  } else if (cmd.startsWith("KTEST ")) {
+    // KTEST <1..5|A> <start> <step> <steps>
+    int sel = -1, st = 0, sp = 0, ns = 0;
+    char c = 0;
+    String rest = cmd.substring(6);
+    rest.trim();
+    if (rest.length() && (rest[0] == 'A' || rest[0] == 'a')) {
+      sel = 0;
+      if (sscanf(rest.c_str() + 1, "%d %d %d", &st, &sp, &ns) != 3) sel = -1;
+    } else if (sscanf(rest.c_str(), "%d %d %d %d%c", &sel, &st, &sp, &ns, &c) < 4 || sel < 1 || sel > 5) {
+      sel = -1;
+    }
+    if (sel < 0 || st < 0 || st > 1000 || sp < 1 || sp > 500 || ns < 1 || ns > 20) {
+      reply("ERR KTEST <1..5|A> <start 0..1000> <step 1..500> <steps 1..20>");
+    } else {
+      runKTest(sel, st, sp, ns);
+    }
   } else if (cmd == "TLOG SHOW") {
     tlogShow();
   } else if (cmd == "TLOG OFF") {
