@@ -373,7 +373,7 @@ void tlogShow() {
 // Opens the hand, then closes ONLY the selected finger on the object with its torque limit
 // at <start>, then raises it by <step> for <steps> times. At every step
 // it waits until the servo is still and records the limit and the position. For every
-// step K = |delta position| / delta limit (position steps per limit unit, 1 step = 0.088 deg);
+// step K = delta limit / |delta position| (stiffness, limit units per position step, 1 step = 0.088 deg);
 // the result is the mean K. Limits are capped by the power preset (MAX_LOAD, TF_MAX_LOAD
 // for the thumb): use SUPPLY TEST for a wider range. Blocking test (a few seconds per
 // step); the safety check runs between steps and stops the test on a fault.
@@ -459,7 +459,12 @@ void runKTest(int sel, int start, int step, int steps) {
         g_out->printf("KTEST step %d LIM %d P %d (limit capped by preset, not used)\n", s, limits[s][k], pos[s][k]);
         continue;
       }
-      float K = (float)dP / (float)dL;
+      if (dP == 0) {  // no movement: infinitely stiff at this resolution, not averaged
+        g_out->printf("KTEST step %d LIM %d P %d dLIM %d dP 0 K inf (no movement, not in the mean)\n", s, limits[s][k],
+                      pos[s][k], dL);
+        continue;
+      }
+      float K = (float)dL / (float)dP;  // stiffness: limit units per position step
       if (s == 1) {  // from step 0 to 1 the finger reaches the object: free travel, not stiffness
         g_out->printf("KTEST step %d LIM %d P %d dLIM %d dP %d K %.4f (first contact, not in the mean)\n", s,
                       limits[s][k], pos[s][k], dL, dP, K);
@@ -471,8 +476,8 @@ void runKTest(int sel, int start, int step, int steps) {
     }
     if (nK > 0) {
       float Km = sumK / nK;
-      g_out->printf("KTEST RESULT servo %d (%s): K mean %.4f steps/LIM unit = %.4f deg/LIM unit (%d steps)\n", id,
-                    KSERVO_NAME[id], Km, Km * 360.0f / 4096.0f, nK);
+      g_out->printf("KTEST RESULT servo %d (%s): K mean %.4f LIM units/step = %.3f LIM units/deg (%d steps)\n", id,
+                    KSERVO_NAME[id], Km, Km * 4096.0f / 360.0f, nK);
     } else {
       g_out->printf("KTEST RESULT servo %d (%s): no valid step\n", id, KSERVO_NAME[id]);
     }
