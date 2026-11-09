@@ -436,7 +436,6 @@ void runKTest(int sel, int start, int step, int steps) {
     done = s;
   }
   if (!ok) g_out->println("KTEST STOPPED: safety fault (see SAFETY message), results up to the last step");
-  if (start == 0) g_out->println("KTEST NOTE: with start 0 the finger reaches the object during the first steps (free travel, no contact); look at the K per step");
 
   for (int k = 0; k < n; k++) {
     u8 id = ids[k];
@@ -452,6 +451,11 @@ void runKTest(int sel, int start, int step, int steps) {
         continue;
       }
       float K = (float)dP / (float)dL;
+      if (s == 1) {  // from step 0 to 1 the finger reaches the object: free travel, not stiffness
+        g_out->printf("KTEST step %d LIM %d P %d dLIM %d dP %d K %.4f (first contact, not in the mean)\n", s,
+                      limits[s][k], pos[s][k], dL, dP, K);
+        continue;
+      }
       sumK += K;
       nK++;
       g_out->printf("KTEST step %d LIM %d P %d dLIM %d dP %d K %.4f\n", s, limits[s][k], pos[s][k], dL, dP, K);
@@ -593,8 +597,8 @@ bool processServiceCommand(const String &cmd) {
     String rest = cmd.substring(6);
     rest.trim();
     if (sscanf(rest.c_str(), "%d %d %d %d", &sel, &st, &sp, &ns) != 4) sel = -1;
-    if (sel < 1 || sel > 5 || st < 0 || st > 1000 || sp < 1 || sp > 500 || ns < 1 || ns > 20) {
-      reply("ERR KTEST <servo 1..5> <start 0..1000> <step 1..500> <steps 1..20>");
+    if (sel < 1 || sel > 5 || st < 0 || st > 1000 || sp < 1 || sp > 500 || ns < 2 || ns > 20) {
+      reply("ERR KTEST <servo 1..5> <start 0..1000> <step 1..500> <steps 2..20>");
     } else {
       runKTest(sel, st, sp, ns);
     }
