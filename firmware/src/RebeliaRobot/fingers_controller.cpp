@@ -29,9 +29,9 @@ FingersController::GraspType FingersController::getGraspTypeByString(const Strin
     return FingersController::GraspType::BAR;
   } else if (cmd.substring(0, 6) == "MONKEY") {
     return FingersController::GraspType::MONKEY;
-  } else if (cmd.substring(0, 5) == "PINCH1") {
+  } else if (cmd.substring(0, 6) == "PINCH1") {
     return FingersController::GraspType::PINCH1;
-  } else if (cmd.substring(0, 11) == "PINCH2") {
+  } else if (cmd.substring(0, 6) == "PINCH2") {
     return FingersController::GraspType::PINCH2;
   }
 
@@ -70,8 +70,8 @@ void FingersController::enableTorque(u8 ID, bool enable) {
   st.EnableTorque(ID, enable);
 }
 
-FingersController::FingersController(BluetoothSerial* _serialBT)
-  : SerialBT(_serialBT) {
+FingersController::FingersController(Stream* output)
+  : SerialBT(output) {
   Serial1.begin(1000000, SERIAL_8N1, S_RXD, S_TXD);
   st.pSerial = &Serial1;
   while (!Serial1) {
@@ -260,8 +260,9 @@ void FingersController::calibrateHand() {
     return (int)(((double)abs(max - min) / 4096.0) * 360.0);
   };
 
-  // Set final torque
-  setMaxTorque(IDN, IDs, (u16[]){ 200, 200, 200, 500, 200 });
+  // Set final torque: grip (attack) at the preset caps, MAX_LOAD for the fingers and
+  // TF_MAX_LOAD for the thumb flexion; the holding phase then drops every servo to HOLD_LOAD.
+  setMaxTorque(IDN, IDs, (u16[]){ (u16)limits.MAX_LOAD, (u16)limits.MAX_LOAD, (u16)limits.MAX_LOAD, (u16)limits.TF_MAX_LOAD, 200 });
 
   // Show information
   SerialBT->println("All servos calibrated!");
@@ -295,6 +296,7 @@ int FingersController::getPosFromFactor(int finger_idx, int factor) {
 }
 
 int FingersController::getFactorFromPos(int finger_idx, s16 pos) {
+  if (MOTORS_POS_RANGE[finger_idx][RANGE_MIN] == MOTORS_POS_RANGE[finger_idx][RANGE_MAX]) return 0;  // not calibrated
   int factor = map(pos, MOTORS_POS_RANGE[finger_idx][RANGE_MIN], MOTORS_POS_RANGE[finger_idx][RANGE_MAX], 0, 100);
   return limit(factor, 0, 100);
 }
@@ -597,6 +599,13 @@ void FingersController::readFeedback(u8 IDN, u8 IDs[],
   st.syncReadPacketTx(IDs, IDN, startAddr, blockLen);
 
   for (int i = 0; i < IDN; i++) {
+    // When a servo misses the sync read, its last valid values are returned (never the
+    // caller's uninitialised arrays, which printed garbage such as ROSAMPR -9368 5277).
+    int c = (IDs[i] >= 1 && IDs[i] <= SERVOS_SIZE) ? IDs[i] - 1 : 0;
+    load[i] = fbLoad[c];
+    voltage[i] = fbVolt[c];
+    temperature[i] = fbTemp[c];
+    current[i] = fbCurrent[c];
     u8 data[blockLen];
     if (st.syncReadPacketRx(IDs[i], data) == blockLen) {
 
@@ -621,6 +630,10 @@ void FingersController::readFeedback(u8 IDN, u8 IDs[],
       u16 rawCurrent = (u16)(data[9] | (data[10] << 8));
       current[i] = (rawCurrent & 0x8000) ? -(s16)(rawCurrent & 0x7FFF)
                                          : (s16)(rawCurrent & 0x7FFF);
+      fbLoad[c] = load[i];
+      fbVolt[c] = voltage[i];
+      fbTemp[c] = temperature[i];
+      fbCurrent[c] = current[i];
     }
   }
 }
@@ -710,11 +723,15 @@ void FingersController::move(u8 IDN, VectorIdx IDXs[], const u8 Factor[], u16 Sp
 }
 
 void FingersController::move(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
+  restoreWorkTorque(IDN, IDs);
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
+  hold_pending = true;  // hold once the fingers stop (see holdUpdate)
+  hold_check_at = millis() + 300;
 }
 
 void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 Speed[], u8 Acc[]) {
 
+  restoreWorkTorque(IDN, IDs);
   st.SyncWritePosEx(IDs, IDN, Pos, Speed, Acc);
   delay(100);
   unsigned long t1 = millis();
@@ -728,6 +745,7 @@ void FingersController::moveUntilLoadLimitHit(u8 IDN, u8 IDs[], s16 Pos[], u16 S
     }
   }
   setCurPosAsTarget(IDN, IDs);
+  applyHoldTorque();
 }
 
 void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc) {
@@ -739,16 +757,37 @@ void FingersController::moveUntilLoadLimitHit(u8 ID, s16 pos, u16 speed, u8 acc)
   moveUntilLoadLimitHit(IDN, IDs, Pos, Speed, Acc);
 }
 
-void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
-  u16 limitedMaxTorque = 0;
-  if (ID != 4) {  // it's not the thumb flexion
-    limitedMaxTorque = (u16)min(limits.MAX_LOAD, (int)maxTorque);
-  } else {  // it's the thumb flexion
-    limitedMaxTorque = (u16)min(limits.TF_MAX_LOAD, (int)maxTorque);
+const FingersController::PowerPreset *FingersController::findPowerPreset(const String &name) {
+  for (int i = 0; i < POWER_PRESETS_COUNT; i++) {
+    if (name == POWER_PRESETS[i].name) return &POWER_PRESETS[i];
   }
-  st.EnableTorque(ID, 0);  // Disable torque
+  return nullptr;
+}
+
+bool FingersController::setPowerPreset(const String &name) {
+  const PowerPreset *p = findPowerPreset(name);
+  if (!p) return false;
+  limits = p->limits;
+  power_preset_name = p->name;
+  return true;
+}
+
+// Torque limit of one servo, capped by the active power preset.
+u16 FingersController::respectTorqueLimits(u8 ID, u16 torque) const {
+  int cap = (ID == THUMB_ID) ? limits.TF_MAX_LOAD : limits.MAX_LOAD;
+  return (u16)min(cap, (int)torque);
+}
+
+void FingersController::setMaxTorque(const u8 ID, const u16 maxTorque) {
+
+  auto limitedMaxTorque = respectTorqueLimits(ID, maxTorque);
+  if (ID >= 1 && ID <= SERVOS_SIZE) work_torque[ID] = limitedMaxTorque;
+  // Torque NOT switched off and on around the write: the torque limit (register 48) is in RAM
+  // and can be written with the torque on. If enabled, the servo moves its goal to the current
+  // position and does not push any more (the new limit would have no effect on a held object).
+  // st.EnableTorque(ID, 0);  // Disable torque
   st.writeWord(ID, SMS_STS_TORQUE_LIMIT_L, limitedMaxTorque);
-  st.EnableTorque(ID, 1);  // Enable with limit
+  // st.EnableTorque(ID, 1);  // Enable with limit
 }
 
 void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque[]) {
@@ -756,14 +795,9 @@ void FingersController::setMaxTorque(const u8 IDN, u8 IDs[], const u16 MaxTorque
   u8 bytes[2 * IDN];  // 5 servos × 2 bytes each
 
   // Convert to bytes
-  for (int i = 0; i < 5; i++) {
-    u16 maxTorque;
-    auto ID = IDs[i];
-    if (ID != 4) {  // it's not the thumb flexion
-      maxTorque = (u16)min(limits.MAX_LOAD, (int)MaxTorque[i]);
-    } else {  // it's the thumb flexion
-      maxTorque = (u16)min(limits.TF_MAX_LOAD, (int)MaxTorque[i]);
-    }
+  for (int i = 0; i < IDN; i++) {
+    auto maxTorque = respectTorqueLimits(IDs[i], MaxTorque[i]);
+    if (IDs[i] >= 1 && IDs[i] <= SERVOS_SIZE) work_torque[IDs[i]] = maxTorque;
     bytes[i * 2] = maxTorque & 0xFF;             // Low byte
     bytes[i * 2 + 1] = (maxTorque >> 8) & 0xFF;  // High byte
   }
@@ -783,32 +817,130 @@ void FingersController::setRangeByCurrentPos(VectorIdx IDX, u8 rangeIndex) {
 }
 
 // Safety
+// Servo names by id (1..5), for messages.
+static const char *servoName(int id) {
+  static const char *NAMES[] = { "?", "index flexion", "middle flexion", "ring+little flexion", "thumb flexion", "thumb rotation" };
+  return (id >= 1 && id <= 5) ? NAMES[id] : NAMES[0];
+}
+
+int FingersController::hotServo(int *temp) const {
+  int hot = 0, hotT = -1;
+  for (int i = 0; i < SERVOS_SIZE; i++) {
+    if (hotWarned[i] && lastValidTemp[i] > hotT) {
+      hot = i + 1;
+      hotT = lastValidTemp[i];
+    }
+  }
+  if (temp) *temp = hotT;
+  return hot;
+}
+
 void FingersController::safetyFeature() {
   for (int id = 1; id <= FingersController::SERVOS_SIZE; id++) {
+    const int i = id - 1;
     auto c = readCurrent(id);
     auto l = readLoad(id);
     auto t = readTemper(id);
 
-    // filter corrupted temperature values
+    // Filter corrupted temperature values: out-of-range readings are dropped, the others go
+    // into a 5-sample window (one per second) and every decision uses the MEDIAN of the
+    // window, so one or two wrong readings in a row cannot trigger WARN HOT or OVER_TEMP
+    // (observed 08/11/2026: a single 58 C reading between 50-51 C stopped an endurance test).
+    // A real rise is followed with about 2-3 s of delay.
     bool tempValueInsideRange = (t >= 0 && t <= 120);
     bool tempValueIsValid = false;
     if (tempValueInsideRange) {
-      int tPrev = lastValidTemp[id];
-      if (tPrev >= 0 && abs(t - tPrev) > 5) {
-        tempValueIsValid = false;
-      } else {
-        tempValueIsValid = true;
-        lastValidTemp[id] = t;
+      tempWin[i][tempWinPos[i]] = t;
+      tempWinPos[i] = (tempWinPos[i] + 1) % TEMP_WIN;
+      if (tempWinCount[i] < TEMP_WIN) tempWinCount[i]++;
+      int n = tempWinCount[i];
+      int sorted[TEMP_WIN];
+      for (int k = 0; k < n; k++) sorted[k] = tempWin[i][k];
+      for (int a = 1; a < n; a++) {  // insertion sort, n <= 5
+        int v = sorted[a], b = a - 1;
+        while (b >= 0 && sorted[b] > v) { sorted[b + 1] = sorted[b]; b--; }
+        sorted[b + 1] = v;
+      }
+      t = sorted[n / 2];  // median
+      tempValueIsValid = true;
+      lastValidTemp[i] = t;
+    }
+
+    // Early temperature warning (before the OVER_TEMP torque cut)
+    if (tempValueInsideRange && tempValueIsValid) {
+      if (!hotWarned[i] && t >= warnTemp()) {
+        SerialBT->printf("WARN HOT: servo %d (%s) %d C, torque cut at %d C: put the object down, new closing commands refused\n",
+                         id, servoName(id), t, limits.OVER_TEMP);
+        hotWarned[i] = true;
+      } else if (hotWarned[i] && t <= warnTemp() - 3) {
+        SerialBT->printf("INFO COOL: servo %d (%s) %d C, closing commands allowed again\n", id, servoName(id), t);
+        hotWarned[i] = false;
       }
     }
 
-    auto fault = c >= limits.OVER_CURRENT || l >= limits.OVER_LOAD || tempValueInsideRange && tempValueIsValid && t >= limits.OVER_TEMP;
+    bool overCurrent = c >= limits.OVER_CURRENT;
+    bool overLoad = l >= limits.OVER_LOAD;
+    bool overTemp = tempValueInsideRange && tempValueIsValid && t >= limits.OVER_TEMP;
+    bool fault = overCurrent || overLoad || overTemp;
 
     if (fault) {
       enableTorque(id, false);
-      SerialBT->printf("Safety: disabled id %d (C:%d L:%d T:%d)!!\n", id, c, l, t);
+      if (!safetyTripped[i]) {  // report once, when the fault starts
+        SerialBT->printf("SAFETY: servo %d (%s) torque OFF, preset %s:", id, servoName(id), power_preset_name);
+        if (overCurrent) SerialBT->printf(" CURRENT %d mA >= limit %d mA (OVER_CURRENT %d);", (int)(c * 6.5), (int)(limits.OVER_CURRENT * 6.5), limits.OVER_CURRENT);
+        if (overLoad) SerialBT->printf(" LOAD %d >= limit %d (OVER_LOAD, torque cap MAX_LOAD %d / TF_MAX_LOAD %d);", l, limits.OVER_LOAD, limits.MAX_LOAD, limits.TF_MAX_LOAD);
+        if (overTemp) SerialBT->printf(" TEMPERATURE %d C >= limit %d C (OVER_TEMP);", t, limits.OVER_TEMP);
+        SerialBT->println();
+        safetyTripped[i] = true;
+      }
     } else {
       enableTorque(id, true);
+      if (safetyTripped[i]) {
+        SerialBT->printf("SAFETY: servo %d (%s) torque ON again (current %d mA, load %d, temperature %d C)\n", id, servoName(id), (int)(c * 6.5), l, t);
+        safetyTripped[i] = false;
+      }
     }
   }
+}
+
+// ---------- Holding phase ----------
+
+void FingersController::writeTorqueLimits(u8 IDN, u8 IDs[], const u16 torque[]) {
+  u8 bytes[2 * IDN];
+  for (int i = 0; i < IDN; i++) {
+    bytes[i * 2] = torque[i] & 0xFF;
+    bytes[i * 2 + 1] = (torque[i] >> 8) & 0xFF;
+  }
+  st.syncWrite(IDs, IDN, SMS_STS_TORQUE_LIMIT_L, bytes, 2);
+}
+
+// Back to the working torque before a movement (only if the hold torque was applied).
+void FingersController::restoreWorkTorque(u8 IDN, u8 IDs[]) {
+  if (!hold_active) return;
+  u8 allIDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  u16 torque[SERVOS_SIZE];
+  for (int i = 0; i < SERVOS_SIZE; i++) torque[i] = work_torque[allIDs[i]];
+  writeTorqueLimits(SERVOS_SIZE, allIDs, torque);
+  hold_active = false;
+}
+
+// Lower every servo to HOLD_LOAD (never above its working torque).
+void FingersController::applyHoldTorque() {
+  u8 allIDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  u16 torque[SERVOS_SIZE];
+  for (int i = 0; i < SERVOS_SIZE; i++) {
+    u16 w = work_torque[allIDs[i]];
+    torque[i] = (w > 0 && w < limits.HOLD_LOAD) ? w : (u16)limits.HOLD_LOAD;
+  }
+  writeTorqueLimits(SERVOS_SIZE, allIDs, torque);
+  hold_active = true;
+  hold_pending = false;
+}
+
+// Called from the main loop: after an asynchronous movement (grasp), hold when the fingers stop.
+void FingersController::holdUpdate() {
+  if (!hold_pending || (long)(millis() - hold_check_at) < 0) return;
+  hold_check_at = millis() + 50;  // check every 50 ms
+  u8 allIDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  if (stalled(SERVOS_SIZE, allIDs)) applyHoldTorque();
 }
