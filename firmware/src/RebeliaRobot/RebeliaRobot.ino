@@ -379,6 +379,8 @@ void tlogShow() {
 // step); the safety check runs between steps and stops the test on a fault.
 static const char *KSERVO_NAME[6] = { "", "index", "middle", "ring+little", "thumb flexion", "thumb rotation" };
 
+int g_kSettleMs = 1000;  // wait after the servo is still, before reading the position
+
 bool kWaitStill(u8 ids[], int n) {
   unsigned long t0 = millis(), lastSafety = millis();
   while (millis() - t0 < 4000) {
@@ -390,7 +392,7 @@ bool kWaitStill(u8 ids[], int n) {
       if (fc.anySafetyTripped()) return false;
     }
   }
-  delay(300);  // settle
+  delay(g_kSettleMs);  // settle: a slow finger may still be creeping when the servo reports still
   fc.safetyFeature();
   return !fc.anySafetyTripped();
 }
@@ -410,9 +412,9 @@ void runKTest(int sel, int start, int step, int steps) {
   int savedHold = lim.HOLD_LOAD;
   fc.setHoldLoad(1000);  // no holding phase during the test
 
-  g_out->printf("KTEST grasp %s, servo %s, start %d, step %d, %d steps, preset %s\n",
+  g_out->printf("KTEST grasp %s, servo %s, start %d, step %d, %d steps, settle %d ms, preset %s\n",
                 FingersController::getGraspStringByType(g_grasp_type).c_str(), KSERVO_NAME[sel], start, step, steps,
-                fc.powerPresetName());
+                g_kSettleMs, fc.powerPresetName());
   // Step 0: open, then close on the object with the start limit
   for (int k = 0; k < n; k++) fc.setMaxTorque(ids[k], start);
   fc.action(g_grasp_type, 0);  // open the whole hand (grasp opening position)
@@ -482,6 +484,7 @@ void runKTest(int sel, int start, int step, int steps) {
     fc.setMaxTorque(id, id == FingersController::THUMB_ID ? lim.TF_MAX_LOAD : lim.MAX_LOAD);
   }
   fc.requestHold();
+  g_closurePercent = g_newClosurePercent = 100;  // so that a following "0" opens the hand
   g_out->println("KTEST END (finger still closed; send 0 to open)");
 }
 
@@ -603,10 +606,14 @@ bool processServiceCommand(const String &cmd) {
     int sel = -1, st = 0, sp = 0, ns = 0;
     String rest = cmd.substring(6);
     rest.trim();
-    if (sscanf(rest.c_str(), "%d %d %d %d", &sel, &st, &sp, &ns) != 4) sel = -1;
-    if (sel < 1 || sel > 5 || st < 0 || st > 1000 || sp < 1 || sp > 500 || ns < 2 || ns > 20) {
-      reply("ERR KTEST <servo 1..5> <start 0..1000> <step 1..500> <steps 2..20>");
+    int settle = 1000;
+    int nArgs = sscanf(rest.c_str(), "%d %d %d %d %d", &sel, &st, &sp, &ns, &settle);
+    if (nArgs < 4) sel = -1;
+    if (sel < 1 || sel > 5 || st < 0 || st > 1000 || sp < 1 || sp > 500 || ns < 2 || ns > 20 || settle < 0 ||
+        settle > 10000) {
+      reply("ERR KTEST <servo 1..5> <start 0..1000> <step 1..500> <steps 2..20> [settle ms 0..10000, default 1000]");
     } else {
+      g_kSettleMs = settle;
       runKTest(sel, st, sp, ns);
     }
   } else if (cmd == "TLOG SHOW") {
