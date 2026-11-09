@@ -26,7 +26,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | CYCLE LOG | TLOG <min> / TLOG SHOW / TLOG OFF | KTEST <1..5|A> <start> <step> <steps> | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | CYCLE LOG | TLOG <min> / TLOG SHOW / TLOG OFF | KTEST <1..5> <start> <step> <steps> | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
   Power presets (SUPPLY): torque limits that keep the supply current within a budget,
   stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
@@ -369,7 +369,7 @@ void tlogShow() {
 }
 
 // ---------- Stiffness test (service command KTEST, research measurements) ----------
-// KTEST <servo> <start> <step> <steps>   servo: 1..5, or A = fingers 1..4
+// KTEST <servo> <start> <step> <steps>   servo: 1..5 (one finger; several fingers later)
 // Closes the selected grasp on the object held in the hand with the torque limit of the
 // selected servo(s) at <start>, then raises it by <step> for <steps> times. At every step
 // it waits until the servo is still and records the limit and the position. For every
@@ -400,23 +400,18 @@ void runKTest(int sel, int start, int step, int steps) {
     reply("ERR NOT CALIBRATED: send CALIBRATE first");
     return;
   }
-  u8 ids[4];
-  int n = 0;
-  if (sel == 0) {
-    for (u8 id = 1; id <= 4; id++) ids[n++] = id;
-  } else {
-    ids[n++] = (u8)sel;
-  }
+  u8 ids[1] = { (u8)sel };
+  const int n = 1;
   const SafetyLimits &lim = fc.safetyLimits();
   const int MAXSTEPS = 20;
   if (steps > MAXSTEPS) steps = MAXSTEPS;
-  int limits[MAXSTEPS + 1][4];
-  int pos[MAXSTEPS + 1][4];
+  int limits[MAXSTEPS + 1][1];
+  int pos[MAXSTEPS + 1][1];
   int savedHold = lim.HOLD_LOAD;
   fc.setHoldLoad(1000);  // no holding phase during the test
 
   g_out->printf("KTEST grasp %s, servo %s, start %d, step %d, %d steps, preset %s\n",
-                FingersController::getGraspStringByType(g_grasp_type).c_str(), sel == 0 ? "A (1-4)" : KSERVO_NAME[sel], start, step, steps,
+                FingersController::getGraspStringByType(g_grasp_type).c_str(), KSERVO_NAME[sel], start, step, steps,
                 fc.powerPresetName());
   // Step 0: open, then close on the object with the start limit
   for (int k = 0; k < n; k++) fc.setMaxTorque(ids[k], start);
@@ -441,6 +436,7 @@ void runKTest(int sel, int start, int step, int steps) {
     done = s;
   }
   if (!ok) g_out->println("KTEST STOPPED: safety fault (see SAFETY message), results up to the last step");
+  if (start == 0) g_out->println("KTEST NOTE: with start 0 the finger reaches the object during the first steps (free travel, no contact); look at the K per step");
 
   for (int k = 0; k < n; k++) {
     u8 id = ids[k];
@@ -592,19 +588,13 @@ bool processServiceCommand(const String &cmd) {
     fc.setMaxTorque(a, b);
     reply("OK LIM");
   } else if (cmd.startsWith("KTEST ")) {
-    // KTEST <1..5|A> <start> <step> <steps>
+    // KTEST <1..5> <start> <step> <steps>
     int sel = -1, st = 0, sp = 0, ns = 0;
-    char c = 0;
     String rest = cmd.substring(6);
     rest.trim();
-    if (rest.length() && (rest[0] == 'A' || rest[0] == 'a')) {
-      sel = 0;
-      if (sscanf(rest.c_str() + 1, "%d %d %d", &st, &sp, &ns) != 3) sel = -1;
-    } else if (sscanf(rest.c_str(), "%d %d %d %d%c", &sel, &st, &sp, &ns, &c) < 4 || sel < 1 || sel > 5) {
-      sel = -1;
-    }
-    if (sel < 0 || st < 0 || st > 1000 || sp < 1 || sp > 500 || ns < 1 || ns > 20) {
-      reply("ERR KTEST <1..5|A> <start 0..1000> <step 1..500> <steps 1..20>");
+    if (sscanf(rest.c_str(), "%d %d %d %d", &sel, &st, &sp, &ns) != 4) sel = -1;
+    if (sel < 1 || sel > 5 || st < 0 || st > 1000 || sp < 1 || sp > 500 || ns < 1 || ns > 20) {
+      reply("ERR KTEST <servo 1..5> <start 0..1000> <step 1..500> <steps 1..20>");
     } else {
       runKTest(sel, st, sp, ns);
     }

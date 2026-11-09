@@ -309,7 +309,7 @@ public:
   static constexpr PowerPreset POWER_PRESETS[] = {
     { "5A", { 330, 300, 150, 600, 60, 80 } },   // standard, factory default; hold 80: test H 05/11/2026 (all covers, about 45 C)
     { "1A", { 200, 200, 150, 250, 60, 80 } },  // supplies limited to about 1 A (e.g. 0.9 A tool outputs)
-    { "TEST", { 600, 500, 150, 900, 60, 80 } },  // manufacturer tests only (grip force limits), never for delivery
+    { "TEST", { 600, 600, 150, 900, 60, 80 } },  // manufacturer/research tests only (limits up to 600 on every finger), never for delivery
   };
   static constexpr int POWER_PRESETS_COUNT = sizeof(POWER_PRESETS) / sizeof(POWER_PRESETS[0]);
   static const PowerPreset *findPowerPreset(const String &name);
