@@ -381,18 +381,30 @@ static const char *KSERVO_NAME[6] = { "", "index", "middle", "ring+little", "thu
 
 int g_kSettleMs = 1000;  // wait after the servo is still, before reading the position
 
+// Still = the position of every selected servo changes by less than 2 steps over 500 ms
+// (a slow finger at low torque can report "not moving" before it has started), at most
+// 10 s; then wait the settle time. Runs the safety check every second.
 bool kWaitStill(u8 ids[], int n) {
   unsigned long t0 = millis(), lastSafety = millis();
-  while (millis() - t0 < 4000) {
-    delay(50);
-    if (fc.stalled(n, ids)) break;
+  int prev[4];
+  for (int k = 0; k < n; k++) prev[k] = fc.readPos(ids[k]);
+  delay(200);  // let the movement start
+  while (millis() - t0 < 10000) {
+    delay(500);
+    bool still = true;
+    for (int k = 0; k < n; k++) {
+      int p = fc.readPos(ids[k]);
+      if (abs(p - prev[k]) >= 2) still = false;
+      prev[k] = p;
+    }
     if (millis() - lastSafety >= 1000) {
       fc.safetyFeature();
       lastSafety = millis();
       if (fc.anySafetyTripped()) return false;
     }
+    if (still) break;
   }
-  delay(g_kSettleMs);  // settle: a slow finger may still be creeping when the servo reports still
+  delay(g_kSettleMs);  // settle
   fc.safetyFeature();
   return !fc.anySafetyTripped();
 }
