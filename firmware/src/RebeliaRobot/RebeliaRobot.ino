@@ -370,8 +370,8 @@ void tlogShow() {
 
 // ---------- Stiffness test (service command KTEST, research measurements) ----------
 // KTEST <servo> <start> <step> <steps>   servo: 1..5 (one finger; several fingers later)
-// Closes the selected grasp on the object held in the hand with the torque limit of the
-// selected servo(s) at <start>, then raises it by <step> for <steps> times. At every step
+// Opens the hand, then closes ONLY the selected finger on the object with its torque limit
+// at <start>, then raises it by <step> for <steps> times. At every step
 // it waits until the servo is still and records the limit and the position. For every
 // step K = |delta position| / delta limit (position steps per limit unit, 1 step = 0.088 deg);
 // the result is the mean K. Limits are capped by the power preset (MAX_LOAD, TF_MAX_LOAD
@@ -415,10 +415,17 @@ void runKTest(int sel, int start, int step, int steps) {
                 fc.powerPresetName());
   // Step 0: open, then close on the object with the start limit
   for (int k = 0; k < n; k++) fc.setMaxTorque(ids[k], start);
-  fc.action(g_grasp_type, 0);
+  fc.action(g_grasp_type, 0);  // open the whole hand (grasp opening position)
   delay(1500);
-  fc.action(g_grasp_type, 100);
-  g_closurePercent = g_newClosurePercent = 100;
+  g_closurePercent = g_newClosurePercent = 0;
+  {
+    // close ONLY the finger under test; the other fingers stay open
+    FingersController::VectorIdx idx[1] = { (FingersController::VectorIdx)(sel - 1) };
+    u8 factor[1] = { 100 };
+    u16 speed[1] = { 3073 };
+    u8 acc[1] = { 200 };
+    fc.move(1, idx, factor, speed, acc);
+  }
   bool ok = kWaitStill(ids, n);
   int done = 0;
   for (int s = 0; ok && s <= steps; s++) {
@@ -475,7 +482,7 @@ void runKTest(int sel, int start, int step, int steps) {
     fc.setMaxTorque(id, id == FingersController::THUMB_ID ? lim.TF_MAX_LOAD : lim.MAX_LOAD);
   }
   fc.requestHold();
-  g_out->println("KTEST END (hand still closed; send 0 to open)");
+  g_out->println("KTEST END (finger still closed; send 0 to open)");
 }
 
 enum class FSM {
