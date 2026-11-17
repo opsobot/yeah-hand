@@ -959,6 +959,7 @@ void loop() {
     g_out->println("Tendon Install..");
     fc.tendonInstallation();
     g_out->println("Please install tendons.");
+    gFsmState = FSM::DoNothing;  // once: the servos keep the position
 
   } else if (gFsmState == FSM::Testing) {
     // test();

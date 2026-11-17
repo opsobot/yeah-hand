@@ -85,6 +85,12 @@ FingersController::~FingersController() {
 }
 
 void FingersController::tendonInstallation() {
+  // Working torque at the preset caps first: before CALIBRATE work_torque is 0, and the
+  // holding phase (restore before each move) would write a torque limit of 0, so the
+  // fingers after the first one would not move.
+  u8 allIDs[SERVOS_SIZE] = { INDEX_ID, MIDDLE_ID, RING_ID, THUMB_ID, THUMB_R_ID };
+  hold_active = false;
+  setMaxTorque(SERVOS_SIZE, allIDs, (u16[]){ (u16)limits.MAX_LOAD, (u16)limits.MAX_LOAD, (u16)limits.MAX_LOAD, (u16)limits.TF_MAX_LOAD, 200 });
   for (int IDX = VectorIdx::Index; IDX <= VectorIdx::Thumb; IDX++) {
     int ID = getMotorIdByVectorIndex((VectorIdx)IDX);
     switch (hand_side) {
@@ -96,6 +102,9 @@ void FingersController::tendonInstallation() {
         break;
     }
   }
+  // Keep the working torque while the tendons are installed (no holding phase):
+  // the fingers must not yield when the tendons are tensioned.
+  restoreWorkTorque(SERVOS_SIZE, allIDs);
 }
 
 void FingersController::setCenterOfRange(int motor_id) {
