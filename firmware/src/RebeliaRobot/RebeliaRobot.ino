@@ -121,10 +121,19 @@ bool g_telemetryBt = true;
 bool g_telemetryUsb = true;
 
 // Deliberate calibration, the only way the hand starts moving after power-on.
+enum class FSM {
+  Control,
+  TendonInstall,
+  Testing,
+  DoNothing
+};
+FSM gFsmState = FSM::Control;
+
 void doCalibrate() {
   reply("OK CALIBRATE: calibrating, keep clear of the fingers");
   fc.calibrateHand();
   g_calibrated = true;
+  gFsmState = FSM::Control;  // grasps and closure move only in Control (not after INSTALL / TEST)
   g_preparation = true;  // then move to the selected grasp's start position
   reply("OK CALIBRATED");
 }
@@ -505,13 +514,6 @@ void runKTest(int sel, int start, int step, int steps) {
   g_out->println("KTEST END (finger still closed; send 0 to open)");
 }
 
-enum class FSM {
-  Control,
-  TendonInstall,
-  Testing,
-  DoNothing
-};
-FSM gFsmState = FSM::Control;
 
 // ---------- Strict argument parsing ----------
 
