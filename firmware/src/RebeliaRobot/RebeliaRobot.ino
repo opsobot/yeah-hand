@@ -26,7 +26,7 @@ Command channels: Bluetooth Classic SPP and USB serial (115200), one command per
                      LOGOUT | SETPASS <old> <new> | PAIRING | UNPAIR ALL | SERVICE ON | HELP
   Service commands (only after SERVICE ON):
                      INSTALL | TEST | CALIBRATE | SETCENTER <1..5> | SETPINCH <-40..40>
-                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> (test) | CYCLE LOG | TLOG <min> / TLOG SHOW / TLOG OFF | KTEST <1..5> <start> <step> <steps> | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
+                     LIM <1..5> <0..1000> | HOLD <0..1000> (test, not saved) | CYCLE <s> <n> [servo] (test) | CYCLE LOG | TLOG <min> / TLOG SHOW / TLOG OFF | KTEST <1..5> <start> <step> <steps> | MOVE <1..5> <0..4095> | SUPPLY [<preset>] | SERVICE OFF
   Power presets (SUPPLY): torque limits that keep the supply current within a budget,
   stored in the hand and applied at start-up. Built in: 5A (default), 1A.
   Every other line is rejected with "ERR" and causes no motion.
@@ -184,6 +184,15 @@ unsigned long g_cycleNext = 0;
 unsigned long g_cycleStartMs = 0;
 long g_cycleCount = 0;
 long g_cycleTotal = 0;
+int g_cycleServo = 0;  // 0 = selected grasp; 1..5 = only that servo (CYCLE <s> <n> <servo>)
+void moveFinger(FingersController::VectorIdx idx, int factor);
+void cycleClose(bool close) {
+  if (g_cycleServo == 0) {
+    g_newClosurePercent = close ? 100 : 0;
+  } else {
+    moveFinger((FingersController::VectorIdx)fc.getVectorIndexByMotorID(g_cycleServo), close ? 100 : 0);
+  }
+}
 int8_t g_cycleMax[5] = { -1, -1, -1, -1, -1 };
 Stream *g_cycleOut = nullptr;
 
@@ -269,7 +278,7 @@ void printCycleLog() {
 void stopCycle(const char *why) {
   if (!g_cycleActive) return;
   g_cycleActive = false;
-  g_newClosurePercent = 0;  // finish open
+  cycleClose(false);  // finish open
   cycleUpdateMax();
   cycleLogEnd(why);
   if (cycleOutReady()) g_cycleOut->printf("CYCLE STOPPED (%s) after %ld cycles\n", why, g_cycleCount);
@@ -288,10 +297,10 @@ void cycleUpdate() {
     return;
   }
   if (!g_cycleClosed) {
-    g_newClosurePercent = 100;
+    cycleClose(true);
     g_cycleClosed = true;
   } else {
-    g_newClosurePercent = 0;
+    cycleClose(false);
     g_cycleClosed = false;
     g_cycleCount++;
     cycleUpdateMax();
@@ -651,9 +660,23 @@ bool processServiceCommand(const String &cmd) {
     g_out->printf("OK TLOG every %d min (max %d records), read with TLOG SHOW\n", a, TLOG_MAX);
   } else if (cmd == "CYCLE LOG") {
     printCycleLog();
-  } else if (parseTwoArgs(cmd, "CYCLE ", 1, 60, 1, 2000, a, b)) {
-    // Test only: endurance cycling of the selected grasp, a seconds closed + a seconds open, b cycles
+  } else if (cmd.startsWith("CYCLE ")) {
+    // Test only: endurance cycling, a seconds closed + a seconds open, b cycles, of the selected
+    // grasp or, with a third argument, of one servo only (1..5, e.g. 4 = thumb flexion, run-in)
+    int sv = 0, consumed = 0;
+    int n = sscanf(cmd.c_str(), "CYCLE %d %d %d%n", &a, &b, &sv, &consumed);
+    if (n < 3) {
+      consumed = 0;
+      sv = 0;
+      n = sscanf(cmd.c_str(), "CYCLE %d %d%n", &a, &b, &consumed);
+      if (n < 2) n = 0;
+    }
+    if (n == 0 || (size_t)consumed != cmd.length() || a < 1 || a > 60 || b < 1 || b > 2000 || sv < 0 || sv > 5) {
+      reply("ERR CYCLE <s 1..60> <n 1..2000> [servo 1..5]");
+      return true;
+    }
     if (refuseIfNotCalibrated()) return true;
+    g_cycleServo = sv;
     g_cyclePeriodMs = (unsigned long)a * 1000UL;
     g_cycleTotal = b;
     g_cycleCount = 0;
@@ -665,6 +688,7 @@ bool processServiceCommand(const String &cmd) {
     cycleUpdateMax();
     cycleLogStart(a, b);
     g_cycleActive = true;
+    if (sv) g_out->printf("CYCLE servo %d only\n", sv);
     g_out->printf("OK CYCLE %d s closed + %d s open, %d cycles; any command except INFO/TELEMETRY/SERVICE ON/CYCLE LOG stops it; record kept in flash, read it with CYCLE LOG\n", a, a, b);
     printCycleTemps("CYCLE");
   } else if (parseOneArg(cmd, "HOLD ", 0, 1000, a)) {
