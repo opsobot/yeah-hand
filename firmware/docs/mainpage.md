@@ -79,7 +79,7 @@ once, only the last is executed.
 | session.authenticated | HandSecurity::Session | per channel, after `AUTH`; reset by `LOGOUT` or link loss |
 | `g_calibrated` | .ino | false after power-on; every motion command is refused until `CALIBRATE` |
 | `g_serviceMode` | .ino | `SERVICE ON` / `SERVICE OFF`; reset by a Bluetooth link loss |
-| `gFsmState` | .ino | `Control`: grasps and closures run. `TendonInstall`: INSTALL runs once, then `DoNothing`. `Testing`: TEST, does nothing. `CONTROL`, `SERVICE OFF` and `CALIBRATE` return to `Control` |
+| `gFsmState` | .ino | `Control`: grasps and closures run. `TendonInstall`: INSTALL runs once, then `DoNothing`. `Testing`: TEST, does nothing. Only `CONTROL` and `SERVICE OFF` return to `Control` (deliberately not `CALIBRATE`: after INSTALL or TEST the hand moves only after `CONTROL`) |
 
 ## Two kinds of movement
 
@@ -166,7 +166,7 @@ Directions and positions differ for left and right hands (`LS_` / `RS_` arrays).
 | Command | Function | Notes |
 |---|---|---|
 | `INSTALL` | tendonInstallation() | flexion servos to the tendon position, torque kept |
-| `CALIBRATE` | doCalibrate() | also allowed outside service mode |
+| `CALIBRATE` | doCalibrate() | also allowed outside service mode; does not leave INSTALL/TEST (send `CONTROL`) |
 | `SETCENTER <id>` | setCenterOfRange() | servo EEPROM offset |
 | `SUPPLY [<preset>]` | printPowerPresets() / savePowerPreset() | restarts to apply |
 | `SETPINCH <-40..40>` | setPinchOffset() | until restart |

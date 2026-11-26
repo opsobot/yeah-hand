@@ -122,7 +122,7 @@ bool g_calibrated = false;  ///< false after every power-on: no motion until CAL
 bool g_telemetryBt = true;
 bool g_telemetryUsb = true;
 
-/// Main state: Control (grasps move), TendonInstall (INSTALL, runs once), Testing (TEST, does nothing), DoNothing.
+/// Main state: Control (grasps move), TendonInstall (INSTALL, runs once), Testing (TEST, does nothing), DoNothing. Only CONTROL and SERVICE OFF return to Control.
 enum class FSM {
   Control,
   TendonInstall,
@@ -131,12 +131,11 @@ enum class FSM {
 };
 FSM gFsmState = FSM::Control;
 
-/// CALIBRATE: runs FingersController::calibrateHand(), marks the hand calibrated, returns to FSM::Control and moves to the selected grasp's start pose.
+/// CALIBRATE: runs FingersController::calibrateHand(), marks the hand calibrated and (in FSM::Control) moves to the selected grasp's start pose. It does not change the state: after INSTALL or TEST send CONTROL.
 void doCalibrate() {
   reply("OK CALIBRATE: calibrating, keep clear of the fingers");
   fc.calibrateHand();
   g_calibrated = true;
-  gFsmState = FSM::Control;  // grasps and closure move only in Control (not after INSTALL / TEST)
   g_preparation = true;  // then move to the selected grasp's start position
   reply("OK CALIBRATED");
 }
