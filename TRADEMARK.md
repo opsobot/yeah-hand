@@ -30,6 +30,24 @@ owner, so that buyers know who stands behind their quality and support.
 - Suggest that your product is official, endorsed, tested or certified by the
   trademark owner.
 
+## Official Yeah Hand
+
+An **official Yeah Hand** is a hand built, tested and sold by Robot Garage
+(Vittorio Lumare), or by a seller listed on the official website.
+Every official unit comes with:
+
+- a unique **serial number**;
+- a **test report** for that unit;
+- the **warranty and support** of Robot Garage.
+
+The list of official sellers is published at https://robotgarage.org.
+If a seller is not on that list, the hand is not an official Yeah Hand, even
+if it is built from this design. It may still be a good hand, but its maker,
+not Robot Garage, is responsible for its quality, warranty and support.
+
+To check whether a unit is official, send its serial number to
+vittorio.lumare@robotgarage.org.
+
 ## Former name
 
 The project was first published as "Rebelia" (V1: https://github.com/opsobot/rebelia). This project is not affiliated
