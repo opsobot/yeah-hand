@@ -50,6 +50,7 @@ BluetoothSerial SerialBT;
 SMS_STS st;
 FingersController fc(&SerialBT);
 
+/// Pings servo IDs 0..5 and prints which answer (debug, not called).
 void servoIdDiscovery() {
   SerialBT.println("Servo ID Discovery");
   for (int i = 0; i <= 5; i++) {
@@ -67,6 +68,7 @@ void servoIdDiscovery() {
   }
 }
 
+/// Start-up: loads provisioning; if not provisioned only USB FACTORY commands work (no Bluetooth, no motion). Otherwise starts secured Bluetooth, sets hand side (L/R) and power preset. The hand does not move until CALIBRATE.
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(50);
@@ -115,12 +117,12 @@ int g_newClosurePercent = 0;
 bool g_preparation = true;
 bool g_closure = false;
 bool g_serviceMode = false;
-bool g_calibrated = false;  // false after every power-on: no motion until CALIBRATE
+bool g_calibrated = false;  ///< false after every power-on: no motion until CALIBRATE
 // Telemetry (ROSPOS, ROSLOAD, ...) per channel; TELEMETRY OFF/ON, back ON at every new connection.
 bool g_telemetryBt = true;
 bool g_telemetryUsb = true;
 
-// Deliberate calibration, the only way the hand starts moving after power-on.
+/// Main state: Control (grasps move), TendonInstall (INSTALL, runs once), Testing (TEST, does nothing), DoNothing.
 enum class FSM {
   Control,
   TendonInstall,
@@ -129,6 +131,7 @@ enum class FSM {
 };
 FSM gFsmState = FSM::Control;
 
+/// CALIBRATE: runs FingersController::calibrateHand(), marks the hand calibrated, returns to FSM::Control and moves to the selected grasp's start pose.
 void doCalibrate() {
   reply("OK CALIBRATE: calibrating, keep clear of the fingers");
   fc.calibrateHand();
@@ -138,15 +141,14 @@ void doCalibrate() {
   reply("OK CALIBRATED");
 }
 
-// Motion commands are refused until the hand is calibrated.
+/// Replies ERR NOT CALIBRATED and returns true if the hand is not calibrated (motion commands call it first).
 bool refuseIfNotCalibrated() {
   if (g_calibrated) return false;
   reply("ERR NOT CALIBRATED: send CALIBRATE first");
   return true;
 }
 
-// New closing commands are refused while a servo is hot (WARN HOT), so a grip is never
-// started that the OVER_TEMP cut could interrupt. Opening is always allowed.
+/// Replies ERR HOT and returns true if @p closing and a servo is above the warning temperature. Opening is always allowed.
 bool refuseIfHot(bool closing) {
   if (!closing) return false;
   int t;
@@ -186,6 +188,7 @@ long g_cycleCount = 0;
 long g_cycleTotal = 0;
 int g_cycleServo = 0;  // 0 = selected grasp; 1..5 = only that servo (CYCLE <s> <n> <servo>)
 void moveFinger(FingersController::VectorIdx idx, int factor);
+/// CYCLE: closes (100) or opens (0) the selected grasp, or only the servo g_cycleServo.
 void cycleClose(bool close) {
   if (g_cycleServo == 0) {
     g_newClosurePercent = close ? 100 : 0;
@@ -196,18 +199,21 @@ void cycleClose(bool close) {
 int8_t g_cycleMax[5] = { -1, -1, -1, -1, -1 };
 Stream *g_cycleOut = nullptr;
 
+/// True if the CYCLE output channel can be written (never blocks on a lost Bluetooth link).
 bool cycleOutReady() {
   if (!g_cycleOut) return false;
   if (g_cycleOut == &SerialBT && !SerialBT.hasClient()) return false;  // never block on a lost link
   return true;
 }
 
+/// Prints the cycle count and the 5 servo temperatures.
 void printCycleTemps(const char *tag) {
   if (!cycleOutReady()) return;
   g_cycleOut->printf("%s %ld T: %d %d %d %d %d\n", tag, g_cycleCount, fc.lastTemp(1), fc.lastTemp(2), fc.lastTemp(3),
                      fc.lastTemp(4), fc.lastTemp(5));
 }
 
+/// Updates the maximum temperature of each servo during CYCLE.
 void cycleUpdateMax() {
   for (int i = 0; i < 5; ++i) {
     int t = fc.lastTemp(i + 1);
@@ -215,6 +221,7 @@ void cycleUpdateMax() {
   }
 }
 
+/// CYCLE: erases the flash log (NVS "yhcycle") and stores the test parameters.
 void cycleLogStart(int seconds, long total) {
   Preferences p;
   p.begin("yhcycle", false);
@@ -227,6 +234,7 @@ void cycleLogStart(int seconds, long total) {
   p.end();
 }
 
+/// CYCLE: appends one record (cycle, time, temperatures) to the flash log, every 50 cycles.
 void cycleLogAppend() {
   Preferences p;
   p.begin("yhcycle", false);
@@ -244,6 +252,7 @@ void cycleLogAppend() {
   p.end();
 }
 
+/// CYCLE: stores the end reason, cycles done and duration in the flash log.
 void cycleLogEnd(const char *why) {
   Preferences p;
   p.begin("yhcycle", false);
@@ -254,6 +263,7 @@ void cycleLogEnd(const char *why) {
   p.end();
 }
 
+/// CYCLE LOG: prints the flash log (also after a reset or power-off).
 void printCycleLog() {
   Preferences p;
   p.begin("yhcycle", true);
@@ -275,6 +285,7 @@ void printCycleLog() {
   p.end();
 }
 
+/// Stops CYCLE, opens the hand and closes the log with the reason.
 void stopCycle(const char *why) {
   if (!g_cycleActive) return;
   g_cycleActive = false;
@@ -285,6 +296,7 @@ void stopCycle(const char *why) {
   printCycleTemps("CYCLE END");
 }
 
+/// Called every loop: at each half period toggles closed/open, counts cycles, logs, stops on WARN HOT or at the end.
 void cycleUpdate() {
   if (!g_cycleActive || (long)(millis() - g_cycleNext) < 0) return;
   g_cycleNext += g_cyclePeriodMs;
@@ -328,6 +340,7 @@ unsigned long g_tlogPeriodMs = 300000UL;
 unsigned long g_tlogNext = 0;
 unsigned long g_tlogStartMs = 0;
 
+/// TLOG: appends one record (time, 5 temperatures, 5 positions) to NVS "yhtlog"; stops when full (60).
 void tlogRecord() {
   Preferences p;
   p.begin("yhtlog", false);
@@ -350,12 +363,14 @@ void tlogRecord() {
   p.end();
 }
 
+/// Called every loop: records when the TLOG period has elapsed.
 void tlogUpdate() {
   if (!g_tlogActive || (long)(millis() - g_tlogNext) < 0) return;
   g_tlogNext += g_tlogPeriodMs;
   tlogRecord();
 }
 
+/// TLOG \<min\>: erases the record and starts recording every @p minutes.
 void tlogStart(int minutes) {
   Preferences p;
   p.begin("yhtlog", false);
@@ -371,6 +386,7 @@ void tlogStart(int minutes) {
   tlogUpdate();  // first record now
 }
 
+/// TLOG SHOW: prints the record.
 void tlogShow() {
   Preferences p;
   p.begin("yhtlog", true);
@@ -402,6 +418,7 @@ int g_kSettleMs = 1000;  // wait after the servo is still, before reading the po
 // Still = the position of every selected servo changes by less than 2 steps over 500 ms
 // (a slow finger at low torque can report "not moving" before it has started), at most
 // 10 s; then wait the settle time. Runs the safety check every second.
+/// KTEST: waits until the servos are still (< 2 steps in 500 ms, max 10 s) plus the settle time; false on a safety fault.
 bool kWaitStill(u8 ids[], int n) {
   unsigned long t0 = millis(), lastSafety = millis();
   int prev[4];
@@ -427,6 +444,7 @@ bool kWaitStill(u8 ids[], int n) {
   return !fc.anySafetyTripped();
 }
 
+/// KTEST: closes one finger on an object, raises its torque limit step by step, prints K = dLIM/|dP| per step and the mean (steps 2..N). Blocking.
 void runKTest(int sel, int start, int step, int steps) {
   if (!g_calibrated) {
     reply("ERR NOT CALIBRATED: send CALIBRATE first");
@@ -526,7 +544,7 @@ void runKTest(int sel, int start, int step, int steps) {
 
 // ---------- Strict argument parsing ----------
 
-// Whole string must be an integer within [minV, maxV].
+/// True if the whole string is an integer in [minV, maxV] (no extra characters).
 bool parseIntStrict(const String &s, int minV, int maxV, int &value) {
   if (s.length() == 0 || s.length() > 6) return false;
   size_t i = 0;
@@ -543,13 +561,13 @@ bool parseIntStrict(const String &s, int minV, int maxV, int &value) {
   return true;
 }
 
-// "<prefix><int>" with the int in range.
+/// Parses "prefix int" strictly.
 bool parseOneArg(const String &line, const char *prefix, int minV, int maxV, int &value) {
   if (!line.startsWith(prefix)) return false;
   return parseIntStrict(line.substring(strlen(prefix)), minV, maxV, value);
 }
 
-// "<prefix><int> <int>" with both ints in range.
+/// Parses "prefix int int" strictly.
 bool parseTwoArgs(const String &line, const char *prefix, int min1, int max1, int min2, int max2, int &a, int &b) {
   if (!line.startsWith(prefix)) return false;
   String args = line.substring(strlen(prefix));
@@ -559,17 +577,19 @@ bool parseTwoArgs(const String &line, const char *prefix, int min1, int max1, in
 }
 
 
+/// Prints a line on the channel of the command being executed (g_out).
 void reply(const char *msg) {
   g_out->println(msg);
 }
 
 // ---------- Commands ----------
 
+/// FI/FM/FR/FT/RT: blocking move of one finger to factor 0..100.
 void moveFinger(FingersController::VectorIdx idx, int factor) {
   fc.moveUntilLoadLimitHit(idx, factor, 3073, 200);
 }
 
-// Power preset stored in NVS (namespace "yhcfg"), applied before calibration.
+/// Power preset name stored in NVS "yhcfg" (default 5A).
 String loadPowerPreset() {
   Preferences cfg;
   cfg.begin("yhcfg", true);
@@ -578,6 +598,7 @@ String loadPowerPreset() {
   return name;
 }
 
+/// Stores the power preset name in NVS (applied at the next start-up).
 void savePowerPreset(const String &name) {
   Preferences cfg;
   cfg.begin("yhcfg", false);
@@ -585,6 +606,7 @@ void savePowerPreset(const String &name) {
   cfg.end();
 }
 
+/// SUPPLY: prints the active preset's limits and the available presets.
 void printPowerPresets() {
   const SafetyLimits &l = fc.safetyLimits();
   g_out->printf("SUPPLY %s: MAX_LOAD=%d TF_MAX_LOAD=%d OVER_CURRENT=%d OVER_LOAD=%d OVER_TEMP=%d HOLD_LOAD=%d\n", fc.powerPresetName(),
@@ -594,6 +616,7 @@ void printPowerPresets() {
   g_out->println();
 }
 
+/// Service commands (after SERVICE ON): INSTALL, TEST, CALIBRATE, SETCENTER, SUPPLY, SETPINCH, LIM, KTEST, TLOG, CYCLE, HOLD, MOVE, SERVICE OFF. Returns false if @p cmd is none of them.
 bool processServiceCommand(const String &cmd) {
   int a, b;
   if (cmd == "SERVICE OFF") {
@@ -707,6 +730,7 @@ bool processServiceCommand(const String &cmd) {
   return true;
 }
 
+/// Executes one command line of an authenticated or authenticating session. Order: AUTH/LOGOUT/SETPASS/PAIRING, authentication check, CYCLE stop, TELEMETRY, CALIBRATE, grasp, closure 0..100, ROS, FI..RT, INFO, POS, CONTROL, HELP, SERVICE ON, service commands.
 void processStringCmd(const String &cmd, HandSecurity::Session &session) {
   g_out = session.out;
   fc.setOutput(session.out);
@@ -850,6 +874,7 @@ void processStringCmd(const String &cmd, HandSecurity::Session &session) {
   reply(g_serviceMode ? "ERR UNKNOWN" : "ERR UNKNOWN (service commands need SERVICE ON)");
 }
 
+/// Moves to the start pose of the selected grasp (called from loop()).
 void prepareGrasp() {
 
   if (g_grasp_type < FingersController::GraspType::_MAX) {
@@ -858,6 +883,7 @@ void prepareGrasp() {
   g_preparation = false;
 }
 
+/// Telemetry: ROSPOS, ROSLOAD, ROSVOLT, ROSTEMP, ROSAMPR lines (every 100 ms to authenticated channels with TELEMETRY ON).
 void sendRosFeedback(Stream &out) {
   u8 factors[FingersController::SERVOS_SIZE];
   s16 load[FingersController::SERVOS_SIZE];
@@ -877,7 +903,7 @@ void sendRosFeedback(Stream &out) {
   out.printf("ROSAMPR %d %d %d %d %d\n", ampr[0], ampr[1], ampr[2], ampr[3], ampr[4]);
 }
 
-// Reads one line, strips '\r' and surrounding spaces. Over-long lines are rejected.
+/// Reads one line, trims it; lines longer than MAX_LINE_LEN are dropped.
 bool readLine(Stream &in, String &line) {
   line = in.readStringUntil('\n');
   line.trim();
@@ -888,8 +914,7 @@ bool readLine(Stream &in, String &line) {
   return line.length() > 0;
 }
 
-// Reads all pending lines of one channel. FACTORY commands are accepted only on USB.
-// Shown on USB while the hand is not provisioned (manufacturer setup, done once).
+/// Help text shown on USB while the hand is not provisioned.
 void printProvisioningHelp(Stream &out) {
   out.println("NOT PROVISIONED - manufacturer setup, one time only:");
   out.println("  FACTORY PROVISION <serial> <L|R> <password>");
@@ -900,6 +925,7 @@ void printProvisioningHelp(Stream &out) {
   out.println("  FACTORY STATUS shows the current state.");
 }
 
+/// Reads all pending lines of one channel: FACTORY on USB only, nothing else until provisioned; of several ROS lines only the last is executed.
 void readChannel(Stream &in, HandSecurity::Session &session, bool isUsb) {
   String lastPosCmd = "";
   String cmd;
@@ -925,8 +951,7 @@ void readChannel(Stream &in, HandSecurity::Session &session, bool isUsb) {
   }
 }
 
-// Bluetooth link lost: end the session and the service mode, start no new motion.
-// The hand holds its current position (an object being grasped is not released).
+/// Bluetooth link lost: ends service mode, cancels pending motion; the hand holds its position (an object is not released).
 void enterSafeStateAfterLinkLoss() {
   g_telemetryBt = true;  // default for the next connection
   g_serviceMode = false;
@@ -937,6 +962,7 @@ void enterSafeStateAfterLinkLoss() {
   g_newClosurePercent = g_closurePercent;
 }
 
+/// Main loop: security housekeeping, reads USB and Bluetooth, CYCLE/TLOG, executes grasp changes and closures in FSM::Control, INSTALL once, telemetry every 100 ms, holding phase, safety check every second.
 void loop() {
   if (!HandSecurity::isProvisioned()) {
     readChannel(Serial, HandSecurity::usbSession(), true);  // FACTORY commands only

@@ -31,7 +31,7 @@ Brute-force protection: increasing lockout after repeated failures (shared by al
 
 namespace HandSecurity {
 
-// Pairing window length after power-on or after the PAIRING command.
+/// Pairing window length after power-on or after the PAIRING command.
 constexpr uint32_t PAIRING_WINDOW_MS = 120000;
 
 struct Session {
@@ -39,34 +39,34 @@ struct Session {
   volatile bool authenticated;
 };
 
-// Load serial number and password from NVS. Call first in setup().
+/// Load serial number and password from NVS. Call first in setup().
 void loadProvisioning();
 
 bool isProvisioned();
 String serialNumber();
 
-// Model stored at provisioning: "L", "R" (or empty).
+/// Model stored at provisioning: "L", "R" (or empty).
 String model();
 
-// Bluetooth name: "YeahHand-<model>-<serial>" (or derived from the MAC if not provisioned).
+/// Bluetooth name: "YeahHand-<model>-<serial>" (or derived from the MAC if not provisioned).
 String deviceName();
 
-// Must be called BEFORE SerialBT.begin().
+/// Must be called BEFORE SerialBT.begin().
 void preBeginBluetooth(BluetoothSerial &bt);
 
-// Call every loop iteration. Manages the pairing window.
+/// Call every loop iteration. Manages the pairing window.
 void loop();
 
 Session &bluetoothSession();
 Session &usbSession();
 
-// True once after the Bluetooth link was closed (then resets).
+/// True once after the Bluetooth link was closed (then resets).
 bool takeBluetoothLinkClosedEvent();
 
-// Handles AUTH, LOGOUT, SETPASS, PAIRING, UNPAIR ALL. Returns true if the line was one of them.
+/// Handles AUTH, LOGOUT, SETPASS, PAIRING, UNPAIR ALL. Returns true if the line was one of them.
 bool handleCommand(const String &line, Session &session);
 
-// Handles FACTORY ... commands. Call only for the wired USB serial port. Returns true if handled.
+/// Handles FACTORY ... commands. Call only for the wired USB serial port. Returns true if handled.
 bool handleFactoryCommand(const String &line, Stream &out);
 
 }  // namespace HandSecurity
