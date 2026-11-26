@@ -1,0 +1,28 @@
+# Doxygen configuration of the Yeah Hand firmware.
+# Build: cd firmware && doxygen Doxyfile   (needs doxygen and graphviz)
+# Output: docs/doxygen/html/index.html (not committed)
+PROJECT_NAME           = "Yeah Hand firmware"
+OUTPUT_DIRECTORY       = docs/doxygen
+INPUT                  = docs/mainpage.md src/RebeliaRobot
+FILE_PATTERNS          = *.h *.cpp *.ino *.md
+EXTENSION_MAPPING      = ino=C++
+USE_MDFILE_AS_MAINPAGE = docs/mainpage.md
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = YES
+JAVADOC_AUTOBRIEF      = YES
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+HAVE_DOT               = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+MAX_DOT_GRAPH_DEPTH    = 2
